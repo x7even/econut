@@ -2,8 +2,9 @@
 // battery level is, and how close it is to shutting the machine down.
 //
 //	econut [status] [--json] [--file PATH]
+//	sudo econut set [--trigger-below PERCENT] [--debounce DURATION]
 //
-// Exit status: 0 guard running, 1 guard not running, 2 usage error.
+// Exit status: 0 ok / guard running, 1 guard not running or a failure, 2 usage error.
 package main
 
 import (
@@ -22,6 +23,9 @@ func main() {
 }
 
 func run(args []string, out, errOut io.Writer, now time.Time) int {
+	if len(args) > 0 && args[0] == "set" {
+		return runSet(args[1:], out, errOut)
+	}
 	if len(args) > 0 && args[0] == "status" {
 		args = args[1:]
 	}

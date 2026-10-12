@@ -25,7 +25,13 @@ Requires the NUT package (`sudo apt install nut-server` on Debian/Ubuntu).
 
 ## Changing the level later
 
-Edit `ECONUT_TRIGGER_BELOW` (and `ECONUT_DEBOUNCE`) in `/etc/econut/econut.conf`, then `sudo systemctl restart econut-guard`. `econut status` shows the level in effect.
+```sh
+sudo econut set --trigger-below 40            # shut down below 40% (on battery)
+sudo econut set --debounce 90s                # ...held for 90 s
+sudo econut set --trigger-below 40 --debounce 90s
+```
+
+`econut set` validates the values, saves them to `/etc/econut/econut.conf` and restarts the guard (`--no-restart` only saves). `econut status` shows the level in effect. Editing `ECONUT_TRIGGER_BELOW` / `ECONUT_DEBOUNCE` in that file by hand and restarting the service works too.
 
 ## Checking on it
 

@@ -21,7 +21,8 @@ Shuts down when: on battery and below 55% for 120s
 Condition: MET for 35s of 120s, would shut down in 85s
 ```
 
-Pick your own level at install time with `--trigger-below N`. See
+Pick your own level at install time with `--trigger-below N`, or any time later with
+`sudo econut set --trigger-below N --debounce 90s`. See
 [deploy/README.md](deploy/README.md) to install, and `docs/` for the design.
 
 Go standard library only. `go test ./...` runs the suite; no test can power anything off.
