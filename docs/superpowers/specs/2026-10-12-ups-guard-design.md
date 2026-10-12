@@ -44,6 +44,7 @@ Module `ups-guard`, Go standard library only.
 | `internal/nut` | NUT text-protocol client: `GET VAR <ups> <var>`, timeouts, reconnect | net |
 | `internal/policy` | Pure state machine: `Step(state, sample, now) (state, decision)` | nothing |
 | `internal/actuator` | `Actuator` interface; `LogOnly` (default) and `Poweroff` | os/exec |
+| `internal/guard` | Poll loop: read, `policy.Step`, act; retries a failed shutdown | nut, policy, actuator |
 | `cmd/ups-guard` | Flags, poll loop, wiring | the above |
 
 ### Policy
@@ -63,7 +64,8 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
   data alone never triggers a shutdown.
 
 Defaults, all flags: `--trigger-below 55`, `--debounce 120s`,
-`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`.
+`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`. Also
+`--enable-shutdown` (off by default) and `--once` (diagnostic: read once, print, exit).
 
 ### Actuator
 
