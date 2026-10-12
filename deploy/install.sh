@@ -158,7 +158,8 @@ if install_file "$HERE/econut-guard.service" /etc/systemd/system/econut-guard.se
   run systemctl daemon-reload
 fi
 if [ "$ENABLE" = 1 ]; then
-  run systemctl enable --now econut-guard.service
+  run systemctl enable econut-guard.service
+  run systemctl restart econut-guard.service # enable --now would leave an already-running old process
   say "econut-guard enabled and ARMED (will power the machine off)"
 elif [ "$DRY" = 0 ] && systemctl is-active --quiet econut-guard.service; then
   run systemctl restart econut-guard.service # pick up a new binary or level
