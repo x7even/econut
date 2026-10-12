@@ -248,6 +248,36 @@ func TestReportMarksFailedReadInvalid(t *testing.T) {
 	}
 }
 
+func TestLogsVariableChanges(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{readings: []nut.Reading{
+		{Status: "OL CHRG", Charge: 99, Vars: map[string]string{"input.voltage": "230", "battery.runtime": "11000"}},
+		{Status: "OL CHRG", Charge: 99, Vars: map[string]string{"input.voltage": "230", "battery.runtime": "10990"}}, // runtime noise only
+		{Status: "OB DISCHRG", Charge: 98, Vars: map[string]string{"input.voltage": "0", "battery.runtime": "10900", "ups.alarm": "power failure"}},
+	}}
+	g := newGuard(src, &fakeAct{}, &buf)
+
+	tick(g, 1)
+	if strings.Contains(buf.String(), "changed") {
+		t.Fatalf("first reading is the baseline, nothing should be logged as changed:\n%s", buf.String())
+	}
+	tick(g, 1)
+	if strings.Contains(buf.String(), "changed") {
+		t.Fatalf("battery.runtime alone must not be logged:\n%s", buf.String())
+	}
+	tick(g, 1)
+	out := buf.String()
+	for _, want := range []string{"UPS values changed", "ups.status", "OL CHRG -> OB DISCHRG", "battery.charge", "99 -> 98",
+		"input.voltage", "230 -> 0", "ups.alarm", "<unset> -> power failure"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "battery.runtime") {
+		t.Errorf("battery.runtime must be excluded:\n%s", out)
+	}
+}
+
 func TestNilReportIsFine(t *testing.T) {
 	var buf bytes.Buffer
 	g := newGuard(constSrc("OL", 100), &fakeAct{}, &buf)

@@ -20,8 +20,8 @@ func Render(s Snapshot, now time.Time) string {
 		return b.String()
 	}
 
-	if s.Mode == ModeEnabled {
-		line("econut-guard: running, shutdown ENABLED (will power the machine off)")
+	if s.Mode == ModeLive {
+		line("econut-guard: running, ARMED (will power the machine off)")
 	} else {
 		line("econut-guard: running, dry-run (will NOT shut down)")
 	}
@@ -39,7 +39,7 @@ func Render(s Snapshot, now time.Time) string {
 	line("Shuts down when: on battery and below %.0f%% for %s", s.TriggerBelow, secs(s.DebounceSecs))
 
 	switch {
-	case s.Triggered && s.Mode == ModeEnabled:
+	case s.Triggered && s.Mode == ModeLive:
 		line("Condition: MET, shutdown requested")
 	case s.Triggered:
 		line("Condition: MET, WOULD have shut down (dry-run)")
@@ -47,7 +47,7 @@ func Render(s Snapshot, now time.Time) string {
 		// No condition to report without a reading.
 	case s.OnBattery && s.Charge < s.TriggerBelow:
 		verb := "would shut down"
-		if s.Mode == ModeEnabled {
+		if s.Mode == ModeLive {
 			verb = "shuts down"
 		}
 		line("Condition: MET for %s of %s, %s in %s",

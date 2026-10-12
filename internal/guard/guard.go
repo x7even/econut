@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,12 +29,13 @@ type Guard struct {
 	Now  func() time.Time
 
 	// Optional, for the econut status command.
-	Mode   string                // status.ModeDryRun or status.ModeEnabled
+	Mode   string                // status.ModeDryRun or status.ModeLive
 	Target string                // NUT target as given by the user
 	Report func(status.Snapshot) // called after every completed poll
 
 	st          policy.State
 	staleLogged bool
+	lastVars    map[string]string
 }
 
 // onBattery reports whether ups.status contains the exact token "OB".
@@ -60,6 +63,8 @@ func (g *Guard) Tick(ctx context.Context) {
 	}
 	if err != nil {
 		g.Log.Warn("NUT read failed", "err", err)
+	} else {
+		g.logChanges(r)
 	}
 
 	now := g.Now()
@@ -83,6 +88,61 @@ func (g *Guard) Tick(ctx context.Context) {
 		}
 	}
 	g.report(now, r, err)
+}
+
+// noisyVars change on every poll and would drown out the events worth seeing.
+var noisyVars = map[string]bool{"battery.runtime": true}
+
+// logChanges logs every UPS value that differs from the previous reading, so the
+// journal records what the unit reports when mains drops or returns. The first
+// reading is only the baseline.
+func (g *Guard) logChanges(r nut.Reading) {
+	cur := make(map[string]string, len(r.Vars)+2)
+	for k, v := range r.Vars {
+		cur[k] = v
+	}
+	cur["ups.status"] = r.Status
+	cur["battery.charge"] = strconv.FormatFloat(r.Charge, 'f', -1, 64)
+
+	prev := g.lastVars
+	g.lastVars = cur
+	if prev == nil {
+		return
+	}
+
+	keys := make(map[string]bool)
+	for k := range cur {
+		keys[k] = true
+	}
+	for k := range prev {
+		keys[k] = true
+	}
+	names := make([]string, 0, len(keys))
+	for k := range keys {
+		if !noisyVars[k] {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+
+	var attrs []any
+	for _, k := range names {
+		old, hadOld := prev[k]
+		now, hasNow := cur[k]
+		if hadOld == hasNow && old == now {
+			continue
+		}
+		if !hadOld {
+			old = "<unset>"
+		}
+		if !hasNow {
+			now = "<unset>"
+		}
+		attrs = append(attrs, slog.String(k, old+" -> "+now))
+	}
+	if len(attrs) > 0 {
+		g.Log.Info("UPS values changed", attrs...)
+	}
 }
 
 func (g *Guard) report(now time.Time, r nut.Reading, readErr error) {

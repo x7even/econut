@@ -6,11 +6,11 @@
 #   --trigger-below N  shut down when on battery and charge is below N percent
 #                      (default 55; saved in /etc/econut/econut.conf)
 #   --dry-run          print what would be done, change nothing
-#   --enable-service   also enable and start the guard (still log-only)
+#   --enable-service   also enable and start the guard (arms the real shutdown)
 #   --uninstall        remove the unit, binaries and udev rule (keeps /etc/nut, /etc/econut)
 #
-# Safe by design: the installed service runs in dry-run (log only) mode. This
-# script never adds --enable-shutdown; see deploy/README.md for that step.
+# The installed service is LIVE: once running it powers the machine off when the
+# condition is met (on battery and below the level for the debounce period).
 # Re-running is fine: unchanged files are left alone, changed ones are backed up.
 set -euo pipefail
 
@@ -151,7 +151,7 @@ else
 fi
 
 # ---- 4. binaries + unit -----------------------------------------------------
-say "binaries and systemd unit (dry-run mode)"
+say "binaries and systemd unit"
 install_file "$ROOT/bin/econut-guard" /usr/local/bin/econut-guard 0755 || true
 install_file "$ROOT/bin/econut" /usr/local/bin/econut 0755 || true
 if install_file "$HERE/econut-guard.service" /etc/systemd/system/econut-guard.service 0644; then
@@ -159,12 +159,12 @@ if install_file "$HERE/econut-guard.service" /etc/systemd/system/econut-guard.se
 fi
 if [ "$ENABLE" = 1 ]; then
   run systemctl enable --now econut-guard.service
-  say "econut-guard enabled in DRY-RUN mode (logs only, will not shut down)"
+  say "econut-guard enabled and ARMED (will power the machine off)"
 elif [ "$DRY" = 0 ] && systemctl is-active --quiet econut-guard.service; then
   run systemctl restart econut-guard.service # pick up a new binary or level
   say "restarted the running econut-guard"
 else
-  say "econut-guard installed but not enabled (use --enable-service for the dry-run daemon)"
+  say "econut-guard installed but not enabled (use --enable-service to arm it)"
 fi
 
 # ---- 5. verify --------------------------------------------------------------
@@ -184,7 +184,7 @@ fi
 
 cat <<EOF
 
-Done. Real shutdown is NOT enabled. Check on it any time with:  econut status
-Watch the dry-run logs through a real outage first:  journalctl -u econut-guard -f
-Then see deploy/README.md for enabling it.
+Done. When running, econut-guard WILL power the machine off if the condition is met.
+Check on it any time with:  econut status
+Watch what the UPS reports (every value change is logged):  journalctl -u econut-guard -f
 EOF

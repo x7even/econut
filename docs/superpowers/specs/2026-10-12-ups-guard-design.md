@@ -16,7 +16,7 @@ APIs, controlling the EcoFlow.
 
 - Reads battery state from NUT every few seconds.
 - Triggers once when the rig is on battery and charge is below 55% continuously for 120 s.
-- **Never shuts down unless `--enable-shutdown` is passed.** Default is dry-run (log only).
+- **Live by default (superseded the original dry-run default).** `--dry-run` is an opt-in that logs instead of shutting down. The original design had `--enable-shutdown`, which no longer exists.
 - The policy is a pure function and fully unit-tested; no test can call `shutdown`.
 - A NUT outage never causes a spurious shutdown and is logged loudly.
 

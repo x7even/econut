@@ -1,5 +1,5 @@
 // Command econut-guard shuts the machine down when the UPS is on battery and
-// the charge is low. It only logs unless --enable-shutdown is given.
+// the charge is low. Pass --dry-run to log instead of shutting down.
 package main
 
 import (
@@ -110,7 +110,7 @@ func main() {
 		debounce   = flag.Duration("debounce", defDebounce, "condition must hold this long before acting (env ECONUT_DEBOUNCE)")
 		poll       = flag.Duration("poll", 5*time.Second, "poll interval")
 		stale      = flag.Duration("stale-after", 300*time.Second, "log an error if NUT data is invalid this long while on battery")
-		enable     = flag.Bool("enable-shutdown", false, "actually power the machine off (default: dry-run, log only)")
+		dryRun     = flag.Bool("dry-run", false, "only log what would happen; never power the machine off (for testing)")
 		once       = flag.Bool("once", false, "read the UPS once, print the reading and exit (diagnostic)")
 		statusFile = flag.String("status-file", status.DefaultPath, "write a status snapshot here for the econut command (empty disables)")
 	)
@@ -140,11 +140,11 @@ func main() {
 		return
 	}
 
-	var act actuator.Actuator = actuator.LogOnly{Log: log}
-	mode, modeText := status.ModeDryRun, "DRY-RUN (no shutdown will occur)"
-	if *enable {
-		act = actuator.NewPoweroff(log)
-		mode, modeText = status.ModeEnabled, "ENABLED (will power off the machine)"
+	var act actuator.Actuator = actuator.NewPoweroff(log)
+	mode, modeText := status.ModeLive, "LIVE (will power off the machine)"
+	if *dryRun {
+		act = actuator.LogOnly{Log: log}
+		mode, modeText = status.ModeDryRun, "DRY-RUN (no shutdown will occur)"
 	}
 	log.Info("starting econut-guard", "mode", modeText, "ups", *target,
 		"trigger_below", *trigger, "debounce", *debounce, "poll", *poll)

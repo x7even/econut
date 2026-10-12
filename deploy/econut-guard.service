@@ -5,16 +5,18 @@ Wants=nut-server.service
 
 [Service]
 # Trigger level and debounce come from /etc/econut/econut.conf.
-# Dry-run by default. Add --enable-shutdown only after the real-outage check.
+# LIVE: this powers the machine off. Add --dry-run to ExecStart to only log.
 EnvironmentFile=-/etc/econut/econut.conf
 ExecStart=/usr/local/bin/econut-guard
 # Creates /run/econut for the status file that `econut status` reads.
 RuntimeDirectory=econut
 RuntimeDirectoryMode=0755
 Restart=on-failure
-# Unprivileged throwaway user. For real shutdown replace this line with User=root
-# (or a user permitted to run `systemctl poweroff`).
-DynamicUser=yes
+# Root, so that `systemctl poweroff` is permitted.
+User=root
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

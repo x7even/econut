@@ -1,4 +1,4 @@
-// Package actuator performs (or, by default, only logs) the shutdown.
+// Package actuator performs the shutdown (Poweroff), or only logs it (LogOnly, for --dry-run).
 package actuator
 
 import (
@@ -16,7 +16,7 @@ type Actuator interface {
 type LogOnly struct{ Log *slog.Logger }
 
 func (a LogOnly) Shutdown(_ context.Context, reason string) error {
-	a.Log.Warn("WOULD shut down (dry-run, --enable-shutdown not set)", "reason", reason)
+	a.Log.Warn("WOULD shut down (--dry-run)", "reason", reason)
 	return nil
 }
 

@@ -17,13 +17,13 @@ func TestRender(t *testing.T) {
 	highBatt.Charge, highBatt.HeldSecs = 80, 0
 
 	enabled := base
-	enabled.Mode = ModeEnabled
+	enabled.Mode = ModeLive
 
 	triggered := base
 	triggered.Triggered, triggered.HeldSecs = true, 125
 
 	triggeredEnabled := triggered
-	triggeredEnabled.Mode = ModeEnabled
+	triggeredEnabled.Mode = ModeLive
 
 	noRead := base
 	noRead.Valid, noRead.Error = false, "nut: connect refused"
@@ -43,7 +43,7 @@ func TestRender(t *testing.T) {
 		{"counting down", base, now,
 			[]string{"on battery", "48%", "Condition: MET", "35s of 120s", "85s"}, nil},
 		{"armed for real", enabled, now,
-			[]string{"shutdown ENABLED", "shuts down in 85s"}, []string{"will NOT"}},
+			[]string{"running, ARMED", "will power the machine off", "shuts down in 85s"}, []string{"will NOT", "dry-run"}},
 		{"dry-run triggered", triggered, now,
 			[]string{"WOULD have shut down"}, nil},
 		{"real triggered", triggeredEnabled, now,

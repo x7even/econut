@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	ModeDryRun  = "dry-run"
-	ModeEnabled = "enabled"
+	ModeDryRun = "dry-run"
+	ModeLive   = "live"
 
 	// DefaultPath is where the systemd unit's RuntimeDirectory puts the file.
 	DefaultPath = "/run/econut/status.json"
@@ -19,7 +19,7 @@ const (
 // Snapshot is the guard's state after its latest poll.
 type Snapshot struct {
 	Updated      time.Time `json:"updated"`
-	Mode         string    `json:"mode"` // ModeDryRun or ModeEnabled
+	Mode         string    `json:"mode"` // ModeDryRun or ModeLive
 	UPS          string    `json:"ups"`
 	PollSeconds  float64   `json:"poll_seconds"`
 	TriggerBelow float64   `json:"trigger_below"`
