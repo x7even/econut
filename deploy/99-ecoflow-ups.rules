@@ -1,0 +1,2 @@
+# EcoFlow Delta 3 Ultra Plus (USB HID port): let the nut group open it.
+SUBSYSTEM=="usb", ATTR{idVendor}=="3746", ATTR{idProduct}=="ffff", MODE="0660", GROUP="nut"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Shut down when the UPS is on battery and low
+After=nut-server.service
+Wants=nut-server.service
+
+[Service]
+# Dry-run by default. Add --enable-shutdown only after the real-outage check.
+ExecStart=/usr/local/bin/ups-guard
+Restart=on-failure
+User=nobody
+
+[Install]
+WantedBy=multi-user.target
