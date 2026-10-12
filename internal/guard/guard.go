@@ -91,7 +91,7 @@ func (g *Guard) Tick(ctx context.Context) {
 }
 
 // noisyVars change on every poll and would drown out the events worth seeing.
-var noisyVars = map[string]bool{"battery.runtime": true}
+var noisyVars = map[string]bool{"battery.runtime": true, "driver.state": true}
 
 // logChanges logs every UPS value that differs from the previous reading, so the
 // journal records what the unit reports when mains drops or returns. The first

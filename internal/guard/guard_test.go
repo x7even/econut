@@ -278,6 +278,19 @@ func TestLogsVariableChanges(t *testing.T) {
 	}
 }
 
+func TestDriverStateFlapIsNotLogged(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{readings: []nut.Reading{
+		{Status: "OL", Charge: 99, Vars: map[string]string{"driver.state": "quiet"}},
+		{Status: "OL", Charge: 99, Vars: map[string]string{"driver.state": "updateinfo"}},
+	}}
+	g := newGuard(src, &fakeAct{}, &buf)
+	tick(g, 2)
+	if strings.Contains(buf.String(), "changed") {
+		t.Fatalf("driver.state flaps every poll and must not be logged:\n%s", buf.String())
+	}
+}
+
 func TestNilReportIsFine(t *testing.T) {
 	var buf bytes.Buffer
 	g := newGuard(constSrc("OL", 100), &fakeAct{}, &buf)
