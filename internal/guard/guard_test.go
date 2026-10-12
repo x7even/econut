@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"ups-guard/internal/nut"
-	"ups-guard/internal/policy"
+	"econut/internal/nut"
+	"econut/internal/policy"
 )
 
 type seqSource struct {

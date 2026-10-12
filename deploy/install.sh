@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the ups-guard shutdown path: udev rule, NUT config, binary, systemd unit.
+# Install the econut-guard shutdown path: udev rule, NUT config, binary, systemd unit.
 #
 #   sudo deploy/install.sh [--dry-run] [--enable-service] [--uninstall]
 #
@@ -21,7 +21,7 @@ done
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(dirname "$HERE")
-BIN="$ROOT/bin/ups-guard"
+BIN="$ROOT/bin/econut-guard"
 STAMP=$(date +%Y%m%d%H%M%S)
 UPS_NAME=ecoflow
 
@@ -51,8 +51,8 @@ install_file() {
 
 if [ "$UNINSTALL" = 1 ]; then
   say "uninstalling (leaving /etc/nut alone: other UPSes may use it)"
-  run systemctl disable --now ups-guard.service 2>/dev/null || true
-  run rm -f /etc/systemd/system/ups-guard.service /usr/local/bin/ups-guard \
+  run systemctl disable --now econut-guard.service 2>/dev/null || true
+  run rm -f /etc/systemd/system/econut-guard.service /usr/local/bin/econut-guard \
             /etc/udev/rules.d/99-ecoflow-ups.rules
   run systemctl daemon-reload
   run udevadm control --reload
@@ -62,7 +62,7 @@ fi
 
 # ---- preflight --------------------------------------------------------------
 [ -x "$BIN" ] || die "$BIN not found; build it first (as your normal user):
-    cd $ROOT && go build -o bin/ups-guard ./cmd/ups-guard"
+    cd $ROOT && go build -o bin/econut-guard ./cmd/econut-guard"
 [ -x /lib/nut/usbhid-ups ] || [ -x /usr/lib/nut/usbhid-ups ] ||
   die "NUT is not installed; on Debian/Ubuntu: sudo apt install nut-server"
 getent group nut >/dev/null || die "group 'nut' missing; is the nut-server package installed?"
@@ -104,31 +104,31 @@ fi
 
 # ---- 3. binary + unit -------------------------------------------------------
 say "binary and systemd unit (dry-run mode)"
-install_file "$BIN" /usr/local/bin/ups-guard 0755 || true
-if install_file "$HERE/ups-guard.service" /etc/systemd/system/ups-guard.service 0644; then
+install_file "$BIN" /usr/local/bin/econut-guard 0755 || true
+if install_file "$HERE/econut-guard.service" /etc/systemd/system/econut-guard.service 0644; then
   run systemctl daemon-reload
 fi
 if [ "$ENABLE" = 1 ]; then
-  run systemctl enable --now ups-guard.service
-  say "ups-guard enabled in DRY-RUN mode (logs only, will not shut down)"
+  run systemctl enable --now econut-guard.service
+  say "econut-guard enabled in DRY-RUN mode (logs only, will not shut down)"
 else
-  say "ups-guard installed but not enabled (use --enable-service for the dry-run daemon)"
+  say "econut-guard installed but not enabled (use --enable-service for the dry-run daemon)"
 fi
 
 # ---- 4. verify --------------------------------------------------------------
 if [ "$DRY" = 0 ]; then
   say "checking the UPS through NUT"
   sleep 3
-  if /usr/local/bin/ups-guard --once; then
-    say "OK: ups-guard can read the EcoFlow through NUT"
+  if /usr/local/bin/econut-guard --once; then
+    say "OK: econut-guard can read the EcoFlow through NUT"
   else
-    die "ups-guard --once failed; check: systemctl status nut-server nut-driver@$UPS_NAME; upsc $UPS_NAME@localhost"
+    die "econut-guard --once failed; check: systemctl status nut-server nut-driver@$UPS_NAME; upsc $UPS_NAME@localhost"
   fi
 fi
 
 cat <<EOF
 
 Done. Real shutdown is NOT enabled. Watch the dry-run logs through a real outage
-first:  journalctl -u ups-guard -f
+first:  journalctl -u econut-guard -f
 Then see deploy/README.md for enabling it.
 EOF

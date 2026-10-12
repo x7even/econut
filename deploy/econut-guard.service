@@ -5,7 +5,7 @@ Wants=nut-server.service
 
 [Service]
 # Dry-run by default. Add --enable-shutdown only after the real-outage check.
-ExecStart=/usr/local/bin/ups-guard
+ExecStart=/usr/local/bin/econut-guard
 Restart=on-failure
 User=nobody
 

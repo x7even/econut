@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"ups-guard/internal/actuator"
-	"ups-guard/internal/nut"
-	"ups-guard/internal/policy"
+	"econut/internal/actuator"
+	"econut/internal/nut"
+	"econut/internal/policy"
 )
 
 type Source interface {

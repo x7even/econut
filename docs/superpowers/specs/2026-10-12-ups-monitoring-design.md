@@ -1,7 +1,7 @@
-# ups-guard monitoring: status, TUI, Prometheus, serial telemetry
+# econut-guard monitoring: status, TUI, Prometheus, serial telemetry
 
 Date: 2026-10-12. Status: draft for user review. Builds on
-`2026-10-12-ups-guard-design.md` (v1 shutdown guard, not yet implemented).
+`2026-10-12-econut-guard-design.md` (v1 shutdown guard, not yet implemented).
 
 ## Purpose
 

@@ -1,4 +1,4 @@
-// Command ups-guard shuts the machine down when the UPS is on battery and
+// Command econut-guard shuts the machine down when the UPS is on battery and
 // the charge is low. It only logs unless --enable-shutdown is given.
 package main
 
@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"ups-guard/internal/actuator"
-	"ups-guard/internal/guard"
-	"ups-guard/internal/nut"
-	"ups-guard/internal/policy"
+	"econut/internal/actuator"
+	"econut/internal/guard"
+	"econut/internal/nut"
+	"econut/internal/policy"
 )
 
 func validate(trigger float64, debounce, poll, stale time.Duration) error {
@@ -79,7 +79,7 @@ func main() {
 		act = actuator.NewPoweroff(log)
 		mode = "ENABLED (will power off the machine)"
 	}
-	log.Info("starting ups-guard", "mode", mode, "ups", *target,
+	log.Info("starting econut-guard", "mode", mode, "ups", *target,
 		"trigger_below", *trigger, "debounce", *debounce, "poll", *poll)
 
 	g := &guard.Guard{

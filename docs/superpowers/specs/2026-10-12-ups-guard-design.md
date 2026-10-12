@@ -1,4 +1,4 @@
-# ups-guard design
+# econut-guard design
 
 Date: 2026-10-12. Status: draft for user review.
 
@@ -6,7 +6,7 @@ Date: 2026-10-12. Status: draft for user review.
 
 The rig `9970x` runs behind an inverter and an EcoFlow Delta 3 Ultra Plus. If mains
 fails and the EcoFlow battery drops below 55%, the rig must shut down cleanly.
-`ups-guard` is a small Go daemon that makes that decision and, only when explicitly
+`econut-guard` is a small Go daemon that makes that decision and, only when explicitly
 enabled, performs the shutdown.
 
 Out of scope: Prometheus metrics (parked by the user), the EcoFlow serial/cloud
@@ -34,10 +34,10 @@ APIs, controlling the EcoFlow.
 ## Architecture
 
 ```
-EcoFlow --USB HID--> usbhid-ups --> upsd (127.0.0.1:3493) --> ups-guard --> [dry-run log | poweroff]
+EcoFlow --USB HID--> usbhid-ups --> upsd (127.0.0.1:3493) --> econut-guard --> [dry-run log | poweroff]
 ```
 
-Module `ups-guard`, Go standard library only.
+Module `econut-guard`, Go standard library only.
 
 | Package | Responsibility | Depends on |
 |---|---|---|
@@ -45,7 +45,7 @@ Module `ups-guard`, Go standard library only.
 | `internal/policy` | Pure state machine: `Step(state, sample, now) (state, decision)` | nothing |
 | `internal/actuator` | `Actuator` interface; `LogOnly` (default) and `Poweroff` | os/exec |
 | `internal/guard` | Poll loop: read, `policy.Step`, act; retries a failed shutdown | nut, policy, actuator |
-| `cmd/ups-guard` | Flags, poll loop, wiring | the above |
+| `cmd/econut-guard` | Flags, poll loop, wiring | the above |
 
 ### Policy
 
@@ -91,7 +91,7 @@ Defaults, all flags: `--trigger-below 55`, `--debounce 120s`,
    `chmod` on `/dev/bus/usb/007/010`).
 2. `/etc/nut/nut.conf` (`MODE=standalone`), `ups.conf` (APC subdriver, as above),
    `upsd.conf`/`upsd.users` (loopback only, read-only user).
-3. Optional systemd unit for `ups-guard`, installed disabled.
+3. Optional systemd unit for `econut-guard`, installed disabled.
 
 ## Risks
 
