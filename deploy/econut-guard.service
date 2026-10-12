@@ -4,7 +4,7 @@ After=nut-server.service
 Wants=nut-server.service
 
 [Service]
-# Trigger level and debounce come from /etc/econut/econut.conf.
+# Shutdown level and debounce come from /etc/econut/econut.conf.
 # LIVE: this powers the machine off. Add --dry-run to ExecStart to only log.
 EnvironmentFile=-/etc/econut/econut.conf
 ExecStart=/usr/local/bin/econut-guard

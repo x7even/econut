@@ -73,7 +73,7 @@ func snapshotWriter(path string, log *slog.Logger) func(status.Snapshot) {
 func validate(trigger float64, debounce, poll, stale time.Duration) error {
 	switch {
 	case math.IsNaN(trigger) || trigger <= 0 || trigger > 100:
-		return fmt.Errorf("--trigger-below must be in (0, 100], got %v", trigger)
+		return fmt.Errorf("--shutdown-below must be in (0, 100], got %v", trigger)
 	case debounce < 0:
 		return fmt.Errorf("--debounce must be >= 0, got %s", debounce)
 	case poll <= 0:
@@ -91,9 +91,9 @@ func validate(trigger float64, debounce, poll, stale time.Duration) error {
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// ECONUT_TRIGGER_BELOW and ECONUT_DEBOUNCE (from /etc/econut/econut.conf under
+	// ECONUT_SHUTDOWN_BELOW and ECONUT_DEBOUNCE (from /etc/econut/econut.conf under
 	// systemd) set the defaults; flags override them.
-	defTrigger, err := envFloat(os.Getenv, "ECONUT_TRIGGER_BELOW", 55)
+	defTrigger, err := envFloat(os.Getenv, "ECONUT_SHUTDOWN_BELOW", 55)
 	if err != nil {
 		log.Error("bad environment", "err", err)
 		os.Exit(2)
@@ -106,7 +106,7 @@ func main() {
 
 	var (
 		target     = flag.String("ups", "ecoflow@127.0.0.1:3493", "NUT UPS as name@host[:port]")
-		trigger    = flag.Float64("trigger-below", defTrigger, "trigger when on battery and charge is below this percent (env ECONUT_TRIGGER_BELOW)")
+		trigger    = flag.Float64("shutdown-below", defTrigger, "shut down when on battery and charge is below this percent (env ECONUT_SHUTDOWN_BELOW)")
 		debounce   = flag.Duration("debounce", defDebounce, "condition must hold this long before acting (env ECONUT_DEBOUNCE)")
 		poll       = flag.Duration("poll", 5*time.Second, "poll interval")
 		stale      = flag.Duration("stale-after", 300*time.Second, "log an error if NUT data is invalid this long while on battery")
@@ -147,10 +147,10 @@ func main() {
 		mode, modeText = status.ModeDryRun, "DRY-RUN (no shutdown will occur)"
 	}
 	log.Info("starting econut-guard", "mode", modeText, "ups", *target,
-		"trigger_below", *trigger, "debounce", *debounce, "poll", *poll)
+		"shutdown_below", *trigger, "debounce", *debounce, "poll", *poll)
 
 	g := &guard.Guard{
-		Cfg:    policy.Config{TriggerBelow: *trigger, Debounce: *debounce, StaleAfter: *stale},
+		Cfg:    policy.Config{ShutdownBelow: *trigger, Debounce: *debounce, StaleAfter: *stale},
 		Src:    client,
 		Act:    act,
 		Log:    log,

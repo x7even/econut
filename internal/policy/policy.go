@@ -13,9 +13,9 @@ type Sample struct {
 }
 
 type Config struct {
-	TriggerBelow float64
-	Debounce     time.Duration
-	StaleAfter   time.Duration
+	ShutdownBelow float64
+	Debounce      time.Duration
+	StaleAfter    time.Duration
 }
 
 type Decision int
@@ -65,7 +65,7 @@ func Step(cfg Config, st State, s Sample, now time.Time) (State, Result) {
 	st.lastValid = now
 	st.lastValidOnBattery = s.OnBattery
 
-	if !(s.OnBattery && s.Charge < cfg.TriggerBelow) {
+	if !(s.OnBattery && s.Charge < cfg.ShutdownBelow) {
 		st.Held, st.Triggered, st.prevHeld = 0, false, false
 		return st, res
 	}

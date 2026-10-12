@@ -2,7 +2,7 @@
 // battery level is, and how close it is to shutting the machine down.
 //
 //	econut [status] [--json] [--file PATH]
-//	sudo econut set [--trigger-below PERCENT] [--debounce DURATION]
+//	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //
 // Exit status: 0 ok / guard running, 1 guard not running or a failure, 2 usage error.
 package main

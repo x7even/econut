@@ -31,6 +31,15 @@ func setConf(content string, kv [][2]string) string {
 	if content == "" {
 		lines = nil
 	}
+	// ECONUT_TRIGGER_BELOW is the earlier name of ECONUT_SHUTDOWN_BELOW; drop it so
+	// the file does not carry a dead setting.
+	kept := lines[:0]
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "ECONUT_TRIGGER_BELOW=") {
+			kept = append(kept, l)
+		}
+	}
+	lines = kept
 	for _, p := range kv {
 		found := false
 		for i, l := range lines {
@@ -71,7 +80,7 @@ func writeFileAtomic(path, content string) error {
 func runSet(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("econut set", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	trigger := fs.String("trigger-below", "", "shut down when on battery and charge is below this percent, e.g. 40")
+	trigger := fs.String("shutdown-below", "", "shut down when on battery and charge is below this percent, e.g. 40")
 	debounce := fs.String("debounce", "", "condition must hold this long before shutting down, e.g. 90s")
 	conf := fs.String("conf", defaultConf, "config file read by the econut-guard service")
 	noRestart := fs.Bool("no-restart", false, "save only; do not restart the service")
@@ -87,17 +96,17 @@ func runSet(args []string, out, errOut io.Writer) int {
 	if fs.NArg() > 0 {
 		return usage("unexpected argument %q", fs.Arg(0))
 	}
-	if !given["trigger-below"] && !given["debounce"] {
-		return usage("nothing to set (usage: econut set [--trigger-below N] [--debounce DURATION])")
+	if !given["shutdown-below"] && !given["debounce"] {
+		return usage("nothing to set (usage: econut set [--shutdown-below N] [--debounce DURATION])")
 	}
 
 	var kv [][2]string
-	if given["trigger-below"] {
+	if given["shutdown-below"] {
 		v, err := strconv.ParseFloat(*trigger, 64)
 		if err != nil || math.IsNaN(v) || v <= 0 || v > 100 {
-			return usage("--trigger-below must be a percent in (0, 100], got %q", *trigger)
+			return usage("--shutdown-below must be a percent in (0, 100], got %q", *trigger)
 		}
-		kv = append(kv, [2]string{"ECONUT_TRIGGER_BELOW", strconv.FormatFloat(v, 'f', -1, 64)})
+		kv = append(kv, [2]string{"ECONUT_SHUTDOWN_BELOW", strconv.FormatFloat(v, 'f', -1, 64)})
 	}
 	if given["debounce"] {
 		d, err := time.ParseDuration(*debounce)
@@ -121,8 +130,8 @@ func runSet(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	for _, p := range kv {
-		if p[0] == "ECONUT_TRIGGER_BELOW" {
-			fmt.Fprintf(out, "trigger level set to %s%%\n", p[1])
+		if p[0] == "ECONUT_SHUTDOWN_BELOW" {
+			fmt.Fprintf(out, "shutdown level set to %s%%\n", p[1])
 		} else {
 			fmt.Fprintf(out, "debounce set to %s\n", p[1])
 		}

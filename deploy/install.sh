@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Install econut: udev rule, NUT config, binaries, config file, systemd unit.
 #
-#   sudo deploy/install.sh [--trigger-below PERCENT] [--dry-run] [--enable-service] [--uninstall]
+#   sudo deploy/install.sh [--shutdown-below PERCENT] [--dry-run] [--enable-service] [--uninstall]
 #
-#   --trigger-below N  shut down when on battery and charge is below N percent
+#   --shutdown-below N  shut down when on battery and charge is below N percent
 #                      (default 55; saved in /etc/econut/econut.conf)
 #   --dry-run          print what would be done, change nothing
 #   --enable-service   also enable and start the guard (arms the real shutdown)
@@ -20,9 +20,9 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --enable-service) ENABLE=1 ;;
     --uninstall) UNINSTALL=1 ;;
-    --trigger-below) [ $# -ge 2 ] || { echo "--trigger-below needs a value" >&2; exit 2; }
+    --shutdown-below) [ $# -ge 2 ] || { echo "--shutdown-below needs a value" >&2; exit 2; }
                      TRIGGER=$2; TRIGGER_SET=1; shift ;;
-    --trigger-below=*) TRIGGER=${1#*=}; TRIGGER_SET=1 ;;
+    --shutdown-below=*) TRIGGER=${1#*=}; TRIGGER_SET=1 ;;
     -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -43,7 +43,7 @@ if [ "$TRIGGER_SET" = 1 ]; then
   # A number in (0, 100]; the guard validates again, but fail before touching anything.
   printf '%s' "$TRIGGER" | grep -Eq '^[0-9]+(\.[0-9]+)?$' &&
     awk -v v="$TRIGGER" 'BEGIN { exit !(v > 0 && v <= 100) }' ||
-    die "--trigger-below must be a number above 0 and at most 100, got '$TRIGGER'"
+    die "--shutdown-below must be a number above 0 and at most 100, got '$TRIGGER'"
 fi
 
 if [ "$DRY" = 0 ] && [ "$(id -u)" -ne 0 ]; then
@@ -140,14 +140,23 @@ run install -d -m 0755 /etc/econut
 if [ ! -f "$CONF" ]; then
   tmp2=$(mktemp)
   trap 'rm -f "${tmp:-}" "$tmp2"' EXIT
-  sed "s/^ECONUT_TRIGGER_BELOW=.*/ECONUT_TRIGGER_BELOW=${TRIGGER:-55}/" "$HERE/econut.conf" >"$tmp2"
+  sed "s/^ECONUT_SHUTDOWN_BELOW=.*/ECONUT_SHUTDOWN_BELOW=${TRIGGER:-55}/" "$HERE/econut.conf" >"$tmp2"
   install_file "$tmp2" "$CONF" 0644
-elif [ "$TRIGGER_SET" = 1 ]; then
-  run cp -p "$CONF" "$CONF.bak.$STAMP"
-  run sed -i "s/^ECONUT_TRIGGER_BELOW=.*/ECONUT_TRIGGER_BELOW=$TRIGGER/" "$CONF"
-  say "set ECONUT_TRIGGER_BELOW=$TRIGGER in $CONF"
 else
-  say "kept your existing $CONF (pass --trigger-below N to change the level)"
+  BACKED_UP=0
+  # ECONUT_TRIGGER_BELOW was the earlier name of ECONUT_SHUTDOWN_BELOW.
+  if grep -q '^ECONUT_TRIGGER_BELOW=' "$CONF"; then
+    run cp -p "$CONF" "$CONF.bak.$STAMP"; BACKED_UP=1
+    run sed -i 's/^ECONUT_TRIGGER_BELOW=/ECONUT_SHUTDOWN_BELOW=/' "$CONF"
+    say "renamed ECONUT_TRIGGER_BELOW to ECONUT_SHUTDOWN_BELOW in $CONF"
+  fi
+  if [ "$TRIGGER_SET" = 1 ]; then
+    [ "$BACKED_UP" = 1 ] || run cp -p "$CONF" "$CONF.bak.$STAMP"
+    run sed -i "s/^ECONUT_SHUTDOWN_BELOW=.*/ECONUT_SHUTDOWN_BELOW=$TRIGGER/" "$CONF"
+    say "set ECONUT_SHUTDOWN_BELOW=$TRIGGER in $CONF"
+  else
+    say "kept your existing $CONF (pass --shutdown-below N to change the level)"
+  fi
 fi
 
 # ---- 4. binaries + unit -----------------------------------------------------

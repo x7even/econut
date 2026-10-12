@@ -81,7 +81,7 @@ func (g *Guard) Tick(ctx context.Context) {
 	}
 
 	if res.Decision == policy.Shutdown {
-		reason := fmt.Sprintf("on battery, charge %.0f%% < %.0f%% for %s", r.Charge, g.Cfg.TriggerBelow, g.Cfg.Debounce)
+		reason := fmt.Sprintf("on battery, charge %.0f%% < %.0f%% for %s", r.Charge, g.Cfg.ShutdownBelow, g.Cfg.Debounce)
 		if err := g.Act.Shutdown(ctx, reason); err != nil {
 			g.Log.Error("shutdown action failed; will retry on next poll", "err", err)
 			g.st.Triggered = false
@@ -150,14 +150,14 @@ func (g *Guard) report(now time.Time, r nut.Reading, readErr error) {
 		return
 	}
 	s := status.Snapshot{
-		Updated:      now,
-		Mode:         g.Mode,
-		UPS:          g.Target,
-		PollSeconds:  g.Poll.Seconds(),
-		TriggerBelow: g.Cfg.TriggerBelow,
-		DebounceSecs: g.Cfg.Debounce.Seconds(),
-		HeldSecs:     g.st.Held.Seconds(),
-		Triggered:    g.st.Triggered,
+		Updated:       now,
+		Mode:          g.Mode,
+		UPS:           g.Target,
+		PollSeconds:   g.Poll.Seconds(),
+		ShutdownBelow: g.Cfg.ShutdownBelow,
+		DebounceSecs:  g.Cfg.Debounce.Seconds(),
+		HeldSecs:      g.st.Held.Seconds(),
+		Triggered:     g.st.Triggered,
 	}
 	if readErr != nil {
 		s.Error = readErr.Error()

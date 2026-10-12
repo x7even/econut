@@ -9,17 +9,17 @@ import (
 
 func sample() Snapshot {
 	return Snapshot{
-		Updated:      time.Unix(1_000_000, 0).UTC(),
-		Mode:         ModeDryRun,
-		UPS:          "ecoflow@127.0.0.1:3493",
-		PollSeconds:  5,
-		TriggerBelow: 55,
-		DebounceSecs: 120,
-		Valid:        true,
-		UPSStatus:    "OB DISCHRG",
-		Charge:       48,
-		OnBattery:    true,
-		HeldSecs:     35,
+		Updated:       time.Unix(1_000_000, 0).UTC(),
+		Mode:          ModeDryRun,
+		UPS:           "ecoflow@127.0.0.1:3493",
+		PollSeconds:   5,
+		ShutdownBelow: 55,
+		DebounceSecs:  120,
+		Valid:         true,
+		UPSStatus:     "OB DISCHRG",
+		Charge:        48,
+		OnBattery:     true,
+		HeldSecs:      35,
 	}
 }
 

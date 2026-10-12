@@ -11,15 +11,15 @@ func env(m map[string]string) func(string) string {
 }
 
 func TestEnvFloat(t *testing.T) {
-	if v, err := envFloat(env(nil), "ECONUT_TRIGGER_BELOW", 55); err != nil || v != 55 {
+	if v, err := envFloat(env(nil), "ECONUT_SHUTDOWN_BELOW", 55); err != nil || v != 55 {
 		t.Fatalf("unset: got %v, %v; want default 55", v, err)
 	}
-	if v, err := envFloat(env(map[string]string{"ECONUT_TRIGGER_BELOW": "30"}), "ECONUT_TRIGGER_BELOW", 55); err != nil || v != 30 {
+	if v, err := envFloat(env(map[string]string{"ECONUT_SHUTDOWN_BELOW": "30"}), "ECONUT_SHUTDOWN_BELOW", 55); err != nil || v != 30 {
 		t.Fatalf("set: got %v, %v; want 30", v, err)
 	}
 	// A typo in the safety threshold must fail loudly, never fall back silently.
 	for _, bad := range []string{"abc", "5 5", "NaN"} {
-		if _, err := envFloat(env(map[string]string{"ECONUT_TRIGGER_BELOW": bad}), "ECONUT_TRIGGER_BELOW", 55); err == nil {
+		if _, err := envFloat(env(map[string]string{"ECONUT_SHUTDOWN_BELOW": bad}), "ECONUT_SHUTDOWN_BELOW", 55); err == nil {
 			t.Errorf("%q: want error", bad)
 		}
 	}

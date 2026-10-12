@@ -10,7 +10,7 @@ var t0 = time.Unix(1_000_000, 0)
 const step = 5 * time.Second
 
 func cfg() Config {
-	return Config{TriggerBelow: 55, Debounce: 120 * time.Second, StaleAfter: 300 * time.Second}
+	return Config{ShutdownBelow: 55, Debounce: 120 * time.Second, StaleAfter: 300 * time.Second}
 }
 
 func ob(charge float64) Sample { return Sample{OnBattery: true, Charge: charge, Valid: true} }

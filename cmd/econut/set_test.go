@@ -10,7 +10,7 @@ import (
 )
 
 const sampleConf = `# comment kept
-ECONUT_TRIGGER_BELOW=55
+ECONUT_SHUTDOWN_BELOW=55
 # note
 ECONUT_DEBOUNCE=120s
 `
@@ -41,12 +41,12 @@ func read(t *testing.T, path string) string {
 
 func TestSetTriggerKeepsRestAndRestarts(t *testing.T) {
 	conf, restarts := setup(t, sampleConf)
-	code, out, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--trigger-below", "40")
+	code, out, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--shutdown-below", "40")
 	if code != 0 {
 		t.Fatalf("code=%d err=%q", code, errOut)
 	}
 	got := read(t, conf)
-	if !strings.Contains(got, "ECONUT_TRIGGER_BELOW=40\n") || !strings.Contains(got, "ECONUT_DEBOUNCE=120s\n") ||
+	if !strings.Contains(got, "ECONUT_SHUTDOWN_BELOW=40\n") || !strings.Contains(got, "ECONUT_DEBOUNCE=120s\n") ||
 		!strings.Contains(got, "# comment kept") || !strings.Contains(got, "# note") {
 		t.Fatalf("conf = %q", got)
 	}
@@ -55,14 +55,25 @@ func TestSetTriggerKeepsRestAndRestarts(t *testing.T) {
 	}
 }
 
+func TestSetReplacesLegacyTriggerKey(t *testing.T) {
+	conf, _ := setup(t, "ECONUT_TRIGGER_BELOW=55\nECONUT_DEBOUNCE=120s\n")
+	if code, _, e := runCmd(t, time.Now(), "set", "--conf", conf, "--shutdown-below", "45"); code != 0 {
+		t.Fatalf("code=%d err=%q", code, e)
+	}
+	got := read(t, conf)
+	if strings.Contains(got, "TRIGGER") || !strings.Contains(got, "ECONUT_SHUTDOWN_BELOW=45\n") {
+		t.Fatalf("legacy key must be replaced, got %q", got)
+	}
+}
+
 func TestSetBothAndMissingKeysAppended(t *testing.T) {
-	conf, _ := setup(t, "ECONUT_TRIGGER_BELOW=55\n") // no debounce line
-	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--trigger-below", "30", "--debounce", "90s")
+	conf, _ := setup(t, "ECONUT_SHUTDOWN_BELOW=55\n") // no debounce line
+	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--shutdown-below", "30", "--debounce", "90s")
 	if code != 0 {
 		t.Fatalf("code=%d err=%q", code, errOut)
 	}
 	got := read(t, conf)
-	if !strings.Contains(got, "ECONUT_TRIGGER_BELOW=30\n") || !strings.Contains(got, "ECONUT_DEBOUNCE=90s\n") {
+	if !strings.Contains(got, "ECONUT_SHUTDOWN_BELOW=30\n") || !strings.Contains(got, "ECONUT_DEBOUNCE=90s\n") {
 		t.Fatalf("conf = %q", got)
 	}
 }
@@ -79,8 +90,8 @@ func TestSetCreatesMissingFile(t *testing.T) {
 
 func TestSetRejectsBadValuesAndLeavesFileAlone(t *testing.T) {
 	for _, args := range [][]string{
-		{"--trigger-below", "0"}, {"--trigger-below", "101"}, {"--trigger-below", "abc"},
-		{"--trigger-below", "NaN"}, {"--trigger-below", ""},
+		{"--shutdown-below", "0"}, {"--shutdown-below", "101"}, {"--shutdown-below", "abc"},
+		{"--shutdown-below", "NaN"}, {"--shutdown-below", ""},
 		{"--debounce", "-5s"}, {"--debounce", "soon"}, {"--debounce", ""},
 		{}, // nothing to set
 	} {
@@ -97,7 +108,7 @@ func TestSetRejectsBadValuesAndLeavesFileAlone(t *testing.T) {
 
 func TestSetNoRestart(t *testing.T) {
 	conf, restarts := setup(t, sampleConf)
-	if code, _, _ := runCmd(t, time.Now(), "set", "--conf", conf, "--trigger-below", "70", "--no-restart"); code != 0 {
+	if code, _, _ := runCmd(t, time.Now(), "set", "--conf", conf, "--shutdown-below", "70", "--no-restart"); code != 0 {
 		t.Fatal("failed")
 	}
 	if *restarts != 0 {
@@ -108,18 +119,18 @@ func TestSetNoRestart(t *testing.T) {
 func TestSetRestartFailureIsReportedButConfSaved(t *testing.T) {
 	conf, _ := setup(t, sampleConf)
 	restartGuard = func() error { return errors.New("unit not found") }
-	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--trigger-below", "70")
+	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", conf, "--shutdown-below", "70")
 	if code != 1 || !strings.Contains(errOut, "unit not found") {
 		t.Fatalf("code=%d err=%q", code, errOut)
 	}
-	if !strings.Contains(read(t, conf), "ECONUT_TRIGGER_BELOW=70\n") {
+	if !strings.Contains(read(t, conf), "ECONUT_SHUTDOWN_BELOW=70\n") {
 		t.Fatal("conf should still be saved")
 	}
 }
 
 func TestSetUnwritableConfSuggestsSudo(t *testing.T) {
 	setup(t, "")
-	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", "/nonexistent-dir/econut.conf", "--trigger-below", "50")
+	code, _, errOut := runCmd(t, time.Now(), "set", "--conf", "/nonexistent-dir/econut.conf", "--shutdown-below", "50")
 	if code != 1 || !strings.Contains(errOut, "sudo") {
 		t.Fatalf("code=%d err=%q", code, errOut)
 	}

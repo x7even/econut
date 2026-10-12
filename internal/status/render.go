@@ -36,7 +36,7 @@ func Render(s Snapshot, now time.Time) string {
 		line("UPS %s: %s (%s), battery %.0f%%", s.UPS, power, s.UPSStatus, s.Charge)
 	}
 
-	line("Shuts down when: on battery and below %.0f%% for %s", s.TriggerBelow, secs(s.DebounceSecs))
+	line("Shuts down when: on battery and below %.0f%% for %s", s.ShutdownBelow, secs(s.DebounceSecs))
 
 	switch {
 	case s.Triggered && s.Mode == ModeLive:
@@ -45,7 +45,7 @@ func Render(s Snapshot, now time.Time) string {
 		line("Condition: MET, WOULD have shut down (dry-run)")
 	case !s.Valid:
 		// No condition to report without a reading.
-	case s.OnBattery && s.Charge < s.TriggerBelow:
+	case s.OnBattery && s.Charge < s.ShutdownBelow:
 		verb := "would shut down"
 		if s.Mode == ModeLive {
 			verb = "shuts down"
@@ -53,7 +53,7 @@ func Render(s Snapshot, now time.Time) string {
 		line("Condition: MET for %s of %s, %s in %s",
 			secs(s.HeldSecs), secs(s.DebounceSecs), verb, secs(max(s.DebounceSecs-s.HeldSecs, 0)))
 	case s.OnBattery:
-		line("Condition: not met (on battery, but %.0f%% is not below %.0f%%)", s.Charge, s.TriggerBelow)
+		line("Condition: not met (on battery, but %.0f%% is not below %.0f%%)", s.Charge, s.ShutdownBelow)
 	default:
 		line("Condition: not met (on mains)")
 	}

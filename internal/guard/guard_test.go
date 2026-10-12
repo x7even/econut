@@ -52,7 +52,7 @@ func (a *fakeAct) Shutdown(_ context.Context, reason string) error {
 func newGuard(src Source, act *fakeAct, buf *bytes.Buffer) *Guard {
 	now := time.Unix(1_000_000, 0)
 	return &Guard{
-		Cfg:  policy.Config{TriggerBelow: 55, Debounce: 120 * time.Second, StaleAfter: 300 * time.Second},
+		Cfg:  policy.Config{ShutdownBelow: 55, Debounce: 120 * time.Second, StaleAfter: 300 * time.Second},
 		Src:  src,
 		Act:  act,
 		Log:  slog.New(slog.NewTextHandler(buf, nil)),
@@ -228,7 +228,7 @@ func TestReportPublishesSnapshotEachTick(t *testing.T) {
 		t.Fatalf("reading not reflected: %+v", last)
 	}
 	if last.Mode != status.ModeDryRun || last.UPS != "ecoflow@127.0.0.1:3493" ||
-		last.TriggerBelow != 55 || last.DebounceSecs != 120 || last.PollSeconds != 5 {
+		last.ShutdownBelow != 55 || last.DebounceSecs != 120 || last.PollSeconds != 5 {
 		t.Fatalf("config not reflected: %+v", last)
 	}
 	if last.HeldSecs != 10 { // first tick holds 0s, then +5s per tick

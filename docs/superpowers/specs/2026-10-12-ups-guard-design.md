@@ -66,7 +66,7 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
   (default 300 s) while the last valid sample was OnBattery, log an error. Invalid
   data alone never triggers a shutdown.
 
-Defaults, all flags: `--trigger-below 55`, `--debounce 120s`,
+Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
 `--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`. Also
 `--enable-shutdown` (off by default) and `--once` (diagnostic: read once, print, exit).
 

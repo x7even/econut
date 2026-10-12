@@ -18,12 +18,12 @@ const (
 
 // Snapshot is the guard's state after its latest poll.
 type Snapshot struct {
-	Updated      time.Time `json:"updated"`
-	Mode         string    `json:"mode"` // ModeDryRun or ModeLive
-	UPS          string    `json:"ups"`
-	PollSeconds  float64   `json:"poll_seconds"`
-	TriggerBelow float64   `json:"trigger_below"`
-	DebounceSecs float64   `json:"debounce_seconds"`
+	Updated       time.Time `json:"updated"`
+	Mode          string    `json:"mode"` // ModeDryRun or ModeLive
+	UPS           string    `json:"ups"`
+	PollSeconds   float64   `json:"poll_seconds"`
+	ShutdownBelow float64   `json:"shutdown_below"`
+	DebounceSecs  float64   `json:"debounce_seconds"`
 
 	Valid     bool    `json:"valid"` // false when the last NUT read failed
 	Error     string  `json:"error,omitempty"`

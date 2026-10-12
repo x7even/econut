@@ -6,32 +6,32 @@ Build, then run the installer as root:
 go build -o bin/ ./cmd/...
 sudo deploy/install.sh --dry-run     # print what it would do (run as root to see real diffs)
 sudo deploy/install.sh               # install with the default level (55%)
-sudo deploy/install.sh --trigger-below 30   # or pick your own level
+sudo deploy/install.sh --shutdown-below 30   # or pick your own level
 ```
 
 The installer:
 
 1. installs the udev rule (`99-ecoflow-ups.rules`) so group `nut` can open the EcoFlow (`3746:ffff`);
 2. installs `nut.conf`, `ups.conf`, `upsd.conf` and `upsd.users` into `/etc/nut` (mode 0640, group `nut`), generating a random password for `upsd.users`, and restarts NUT;
-3. writes `/etc/econut/econut.conf` (the trigger level and debounce). An existing file is kept unless you pass `--trigger-below`;
+3. writes `/etc/econut/econut.conf` (the shutdown level and debounce). An existing file is kept unless you pass `--shutdown-below`;
 4. installs `/usr/local/bin/econut-guard`, `/usr/local/bin/econut` and the systemd unit (enabled only with `--enable-service`; a running guard is restarted);
 5. runs `econut-guard --once` to prove it can read the battery through NUT.
 
 Existing files that differ are backed up as `<file>.bak.<timestamp>`; identical files are left alone, so re-running is safe. A leftover `ups-guard` install (the old name) is removed.
 
-Options: `--trigger-below N` sets the level; `--enable-service` also enables and starts the unit (arming the real shutdown); `--uninstall` removes the unit, binaries and udev rule (it leaves `/etc/nut` and `/etc/econut` alone).
+Options: `--shutdown-below N` sets the level; `--enable-service` also enables and starts the unit (arming the real shutdown); `--uninstall` removes the unit, binaries and udev rule (it leaves `/etc/nut` and `/etc/econut` alone).
 
 Requires the NUT package (`sudo apt install nut-server` on Debian/Ubuntu).
 
 ## Changing the level later
 
 ```sh
-sudo econut set --trigger-below 40            # shut down below 40% (on battery)
+sudo econut set --shutdown-below 40            # shut down below 40% (on battery)
 sudo econut set --debounce 90s                # ...held for 90 s
-sudo econut set --trigger-below 40 --debounce 90s
+sudo econut set --shutdown-below 40 --debounce 90s
 ```
 
-`econut set` validates the values, saves them to `/etc/econut/econut.conf` and restarts the guard (`--no-restart` only saves). `econut status` shows the level in effect. Editing `ECONUT_TRIGGER_BELOW` / `ECONUT_DEBOUNCE` in that file by hand and restarting the service works too.
+`econut set` validates the values, saves them to `/etc/econut/econut.conf` and restarts the guard (`--no-restart` only saves). `econut status` shows the level in effect. Editing `ECONUT_SHUTDOWN_BELOW` / `ECONUT_DEBOUNCE` in that file by hand and restarting the service works too.
 
 ## Checking on it
 

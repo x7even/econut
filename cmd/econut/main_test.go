@@ -14,7 +14,7 @@ import (
 func snap(updated time.Time) status.Snapshot {
 	return status.Snapshot{
 		Updated: updated, Mode: status.ModeDryRun, UPS: "ecoflow@127.0.0.1:3493",
-		PollSeconds: 5, TriggerBelow: 55, DebounceSecs: 120,
+		PollSeconds: 5, ShutdownBelow: 55, DebounceSecs: 120,
 		Valid: true, UPSStatus: "OL", Charge: 99,
 	}
 }
