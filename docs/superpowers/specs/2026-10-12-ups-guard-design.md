@@ -58,8 +58,11 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
 - **Triggered**: emits no further decisions while the condition keeps holding. Returns
   to Armed as soon as the condition no longer holds (mains is back, or Charge >= 55).
   There is no separate re-arm threshold: if the machine is up, the daemon is armed.
-- **Invalid sample** (NUT unreachable or variable missing): the timer is not advanced
-  and not reset; a warning is logged. If invalid for longer than `--stale-after`
+- **Invalid sample** (NUT unreachable, variable missing, or charge outside 0-100): the
+  timer is not reset; a warning is logged. If the valid samples on either side of a gap
+  both meet the condition and the gap is no longer than `--stale-after`, the gap is
+  credited to the timer (so intermittent NUT failures cannot stall the debounce); a
+  longer gap is not credited. `--poll` must satisfy `2*poll < stale-after`. If invalid for longer than `--stale-after`
   (default 300 s) while the last valid sample was OnBattery, log an error. Invalid
   data alone never triggers a shutdown.
 

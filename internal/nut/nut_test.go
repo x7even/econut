@@ -135,6 +135,18 @@ func TestReadErrorsBecomeErrors(t *testing.T) {
 	}
 }
 
+func TestReadRejectsImplausibleCharge(t *testing.T) {
+	for _, c := range []string{"NaN", "Inf", "-Inf", "-1", "100.5", "1e9"} {
+		t.Run(c, func(t *testing.T) {
+			addr := fakeUPSD(t, normal("OB", c))
+			cl := &Client{Addr: addr, UPS: "ecoflow", Timeout: time.Second}
+			if _, err := cl.Read(context.Background()); err == nil {
+				t.Fatalf("charge %q accepted", c)
+			}
+		})
+	}
+}
+
 func TestReadTimesOutOnHang(t *testing.T) {
 	addr := fakeUPSD(t, func(string) (string, bool) {
 		time.Sleep(2 * time.Second)

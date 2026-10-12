@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -67,6 +68,11 @@ func (c *Client) Read(ctx context.Context) (Reading, error) {
 	charge, err := strconv.ParseFloat(chargeStr, 64)
 	if err != nil {
 		return Reading{}, fmt.Errorf("nut: battery.charge %q: %w", chargeStr, err)
+	}
+	// A garbage value (NaN, negative, over 100) must not reach the policy:
+	// a negative charge would look "low" and could trigger a shutdown.
+	if math.IsNaN(charge) || charge < 0 || charge > 100 {
+		return Reading{}, fmt.Errorf("nut: battery.charge %q out of range 0-100", chargeStr)
 	}
 	// Best effort: monitoring data must never fail a read the guard depends on.
 	vars, _ := listVars(conn, br, c.UPS)

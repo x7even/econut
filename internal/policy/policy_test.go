@@ -123,6 +123,30 @@ func TestInvalidSamplesDoNotAdvanceOrResetTimer(t *testing.T) {
 	}
 }
 
+func TestIntermittentInvalidSamplesStillTrigger(t *testing.T) {
+	// Every other poll fails; the condition holds at every valid sample.
+	var s []Sample
+	for i := 0; i < 60; i++ {
+		s = append(s, ob(50), bad)
+	}
+	_, rs, _ := feed(cfg(), State{}, s, t0)
+	if got := shutdowns(rs); len(got) != 1 {
+		t.Fatalf("want exactly one shutdown despite alternating failures, got %v", got)
+	}
+}
+
+func TestInvalidGapThenMainsResets(t *testing.T) {
+	var s []Sample
+	s = append(s, repeat(ob(50), 15)...)
+	s = append(s, repeat(bad, 3)...)
+	s = append(s, ol(50)) // mains back after the gap: must reset
+	s = append(s, repeat(ob(50), 15)...)
+	_, rs, _ := feed(cfg(), State{}, s, t0)
+	if got := shutdowns(rs); len(got) != 0 {
+		t.Fatalf("unexpected shutdown at %v", got)
+	}
+}
+
 func TestOnlyInvalidSamplesNeverTrigger(t *testing.T) {
 	_, rs, _ := feed(cfg(), State{}, repeat(bad, 500), t0)
 	if got := shutdowns(rs); len(got) != 0 {

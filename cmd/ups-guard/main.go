@@ -28,6 +28,10 @@ func validate(trigger float64, debounce, poll, stale time.Duration) error {
 		return fmt.Errorf("--poll must be > 0, got %s", poll)
 	case stale <= 0:
 		return fmt.Errorf("--stale-after must be > 0, got %s", stale)
+	case 2*poll >= stale:
+		// The policy does not credit gaps of stale-after or more, and one
+		// slow NUT read can take up to two poll intervals.
+		return fmt.Errorf("--poll %s too large for --stale-after %s (need 2*poll < stale-after)", poll, stale)
 	}
 	return nil
 }

@@ -43,8 +43,8 @@ type State struct {
 	// samples. Invalid samples neither advance nor reset it.
 	Held time.Duration
 
-	prevHeld           bool // previous sample was valid and met the condition
-	last               time.Time
+	prevHeld           bool      // the last valid sample met the condition
+	lastHeld           time.Time // when that sample was taken
 	lastValid          time.Time
 	lastValidOnBattery bool
 }
@@ -52,11 +52,10 @@ type State struct {
 // Step consumes one sample taken at now and returns the new state and result.
 func Step(cfg Config, st State, s Sample, now time.Time) (State, Result) {
 	var res Result
-	prev := st.last
-	st.last = now
 
 	if !s.Valid {
-		st.prevHeld = false
+		// Invalid samples neither advance nor reset the timer; prevHeld and
+		// lastHeld are kept so a brief NUT glitch does not stall the debounce.
 		if st.lastValidOnBattery && now.Sub(st.lastValid) > cfg.StaleAfter {
 			res.StaleOnBattery = true
 		}
@@ -71,13 +70,16 @@ func Step(cfg Config, st State, s Sample, now time.Time) (State, Result) {
 		return st, res
 	}
 
-	// Only count the interval since the previous sample when it is positive
-	// and no longer than StaleAfter. A backwards clock step or a huge forward
-	// jump (suspend/resume, NTP) is treated as a gap, not as time held.
-	if dt := now.Sub(prev); st.prevHeld && dt > 0 && dt <= cfg.StaleAfter {
+	// Credit the interval since the last valid sample that met the condition
+	// (bridging any invalid samples between) when both ends held, and it is
+	// positive and no longer than StaleAfter. A backwards clock step or a
+	// huge forward jump (suspend/resume, NTP) is treated as a gap, not as
+	// time held.
+	if dt := now.Sub(st.lastHeld); st.prevHeld && dt > 0 && dt <= cfg.StaleAfter {
 		st.Held += dt
 	}
 	st.prevHeld = true
+	st.lastHeld = now
 
 	if !st.Triggered && st.Held >= cfg.Debounce {
 		st.Triggered = true
