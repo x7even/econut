@@ -41,4 +41,4 @@ Condition: not met (on mains)
 
 ## Enabling real shutdown (deliberately manual)
 
-The installer never does this. Run the dry-run service through a real outage first and check `journalctl -u econut-guard` shows the `OB` status and a sensible `WOULD shut down` line. Then add `--enable-shutdown` to `ExecStart` in `/etc/systemd/system/econut-guard.service`, change `User=` to root (or a user permitted to run `systemctl poweroff`), and `sudo systemctl daemon-reload && sudo systemctl restart econut-guard`.
+The installer never does this. Run the dry-run service through a real outage first and check `journalctl -u econut-guard` shows the `OB` status and a sensible `WOULD shut down` line. Then add `--enable-shutdown` to `ExecStart` in `/etc/systemd/system/econut-guard.service`, replace the `DynamicUser=yes` line with `User=root` (or a user permitted to run `systemctl poweroff`), and `sudo systemctl daemon-reload && sudo systemctl restart econut-guard`.

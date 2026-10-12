@@ -12,7 +12,9 @@ ExecStart=/usr/local/bin/econut-guard
 RuntimeDirectory=econut
 RuntimeDirectoryMode=0755
 Restart=on-failure
-User=nobody
+# Unprivileged throwaway user. For real shutdown replace this line with User=root
+# (or a user permitted to run `systemctl poweroff`).
+DynamicUser=yes
 
 [Install]
 WantedBy=multi-user.target
