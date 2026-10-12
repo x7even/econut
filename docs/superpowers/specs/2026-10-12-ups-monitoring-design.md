@@ -31,13 +31,20 @@ ever sent to the unit):
 
 - The unit pushes a ~36-37 byte frame about every 30 s with no polling.
 - Frame layout: `AA 03 <len u16 LE> <crc8>` then 13 more header bytes, then a body of
-  `len - 1` bytes, then a 2-byte trailer (probably CRC16).
+  17 bytes, then a 2-byte trailer (probably CRC16).
 - Header byte 5 is stable (`0x2c`). Header byte 6 changes every frame (`CF, D0, D1,
-  D2, ...`) and **is the XOR key for the body**: XOR-ing the body with it turns the
-  mass of repeated key bytes into zeros and leaves structured fields. Header byte 7
-  was `0x64` (= 100) in every frame, matching 100% charge.
-- A decoded body looked like `0f 02 01 04 54 0d 03 00 00 00 00 00 01 00 54 0d`;
-  `54 0d` (= 0x0d54 = 3412) appears twice.
+  D2, D6, D7, ...`) and **is the XOR key for the body**: XOR-ing the body with it turns
+  the mass of repeated key bytes into zeros and leaves structured fields. It
+  usually rises by one per frame but once jumped by four, so some frames are not
+  reaching us or the counter ticks for other traffic.
+- Header byte 7 read `0x64` in the early frames and `0x65` later with charge fixed
+  at 100%. An earlier note that it equals the charge was wrong; it looks like a slow
+  counter.
+- Decoded bodies look like `0f 02 01 04 63 0d 03 00 00 00 00 00 00 01 00 64 0d`. A
+  16-bit little-endian value appears at both the start and end of the variable part
+  (`63 0d` ... `64 0d` = 3427 ... 3428, then `42 15` ... `43 15` = 5442 ... 5443, then
+  `4a 15` ... `4a 15`). Its meaning is unknown. It changed between frames while
+  the system was idle, so it is not load.
 
 These are hypotheses from a handful of frames on a quiet system. A field only
 counts as decoded when it tracks a known change in the real world.
