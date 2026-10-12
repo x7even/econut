@@ -12,6 +12,7 @@ import (
 
 	"econut/internal/nut"
 	"econut/internal/policy"
+	"econut/internal/status"
 )
 
 type seqSource struct {
@@ -209,3 +210,46 @@ func TestRunStopsOnCancel(t *testing.T) {
 type funcSource func(context.Context) (nut.Reading, error)
 
 func (f funcSource) Read(ctx context.Context) (nut.Reading, error) { return f(ctx) }
+
+func TestReportPublishesSnapshotEachTick(t *testing.T) {
+	var buf bytes.Buffer
+	g := newGuard(constSrc("OB DISCHRG", 48), &fakeAct{}, &buf)
+	g.Mode, g.Target = status.ModeDryRun, "ecoflow@127.0.0.1:3493"
+	var snaps []status.Snapshot
+	g.Report = func(s status.Snapshot) { snaps = append(snaps, s) }
+
+	tick(g, 3)
+
+	if len(snaps) != 3 {
+		t.Fatalf("got %d snapshots, want 3", len(snaps))
+	}
+	last := snaps[2]
+	if !last.Valid || !last.OnBattery || last.Charge != 48 || last.UPSStatus != "OB DISCHRG" {
+		t.Fatalf("reading not reflected: %+v", last)
+	}
+	if last.Mode != status.ModeDryRun || last.UPS != "ecoflow@127.0.0.1:3493" ||
+		last.TriggerBelow != 55 || last.DebounceSecs != 120 || last.PollSeconds != 5 {
+		t.Fatalf("config not reflected: %+v", last)
+	}
+	if last.HeldSecs != 10 { // first tick holds 0s, then +5s per tick
+		t.Fatalf("HeldSecs = %v, want 10", last.HeldSecs)
+	}
+}
+
+func TestReportMarksFailedReadInvalid(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{readings: []nut.Reading{{}}, errs: []error{errors.New("connection refused")}}
+	g := newGuard(src, &fakeAct{}, &buf)
+	var got status.Snapshot
+	g.Report = func(s status.Snapshot) { got = s }
+	tick(g, 1)
+	if got.Valid || got.Error == "" {
+		t.Fatalf("failed read must be Valid=false with an error, got %+v", got)
+	}
+}
+
+func TestNilReportIsFine(t *testing.T) {
+	var buf bytes.Buffer
+	g := newGuard(constSrc("OL", 100), &fakeAct{}, &buf)
+	tick(g, 2) // must not panic
+}

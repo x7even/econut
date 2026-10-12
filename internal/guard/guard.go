@@ -11,6 +11,7 @@ import (
 	"econut/internal/actuator"
 	"econut/internal/nut"
 	"econut/internal/policy"
+	"econut/internal/status"
 )
 
 type Source interface {
@@ -24,6 +25,11 @@ type Guard struct {
 	Log  *slog.Logger
 	Poll time.Duration
 	Now  func() time.Time
+
+	// Optional, for the econut status command.
+	Mode   string                // status.ModeDryRun or status.ModeEnabled
+	Target string                // NUT target as given by the user
+	Report func(status.Snapshot) // called after every completed poll
 
 	st          policy.State
 	staleLogged bool
@@ -56,7 +62,8 @@ func (g *Guard) Tick(ctx context.Context) {
 		g.Log.Warn("NUT read failed", "err", err)
 	}
 
-	st, res := policy.Step(g.Cfg, g.st, toSample(r, err), g.Now())
+	now := g.Now()
+	st, res := policy.Step(g.Cfg, g.st, toSample(r, err), now)
 	g.st = st
 
 	if res.StaleOnBattery {
@@ -75,6 +82,32 @@ func (g *Guard) Tick(ctx context.Context) {
 			g.st.Triggered = false
 		}
 	}
+	g.report(now, r, err)
+}
+
+func (g *Guard) report(now time.Time, r nut.Reading, readErr error) {
+	if g.Report == nil {
+		return
+	}
+	s := status.Snapshot{
+		Updated:      now,
+		Mode:         g.Mode,
+		UPS:          g.Target,
+		PollSeconds:  g.Poll.Seconds(),
+		TriggerBelow: g.Cfg.TriggerBelow,
+		DebounceSecs: g.Cfg.Debounce.Seconds(),
+		HeldSecs:     g.st.Held.Seconds(),
+		Triggered:    g.st.Triggered,
+	}
+	if readErr != nil {
+		s.Error = readErr.Error()
+	} else {
+		s.Valid = true
+		s.UPSStatus = r.Status
+		s.Charge = r.Charge
+		s.OnBattery = onBattery(r.Status)
+	}
+	g.Report(s)
 }
 
 // Run polls immediately and then every Poll until ctx is done.
