@@ -54,14 +54,15 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
 - **Armed** (initial): condition = OnBattery AND Charge < 55. If the condition holds
   continuously for 120 s, decide `Shutdown` and move to **Triggered**. Any sample that
   breaks the condition resets the timer.
-- **Triggered**: emits no further decisions. Returns to Armed only when
-  not OnBattery AND Charge > 60 (re-arm hysteresis, 5 points above the trigger).
+- **Triggered**: emits no further decisions while the condition keeps holding. Returns
+  to Armed as soon as the condition no longer holds (mains is back, or Charge >= 55).
+  There is no separate re-arm threshold: if the machine is up, the daemon is armed.
 - **Invalid sample** (NUT unreachable or variable missing): the timer is not advanced
   and not reset; a warning is logged. If invalid for longer than `--stale-after`
   (default 300 s) while the last valid sample was OnBattery, log an error. Invalid
   data alone never triggers a shutdown.
 
-Defaults, all flags: `--trigger-below 55`, `--rearm-above 60`, `--debounce 120s`,
+Defaults, all flags: `--trigger-below 55`, `--debounce 120s`,
 `--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`.
 
 ### Actuator
