@@ -1,0 +1,3 @@
+[monitor]
+  password = CHANGE-ME-before-installing
+  upsmon primary

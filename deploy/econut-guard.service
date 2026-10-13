@@ -1,0 +1,22 @@
+[Unit]
+Description=econut-guard: shut down when the UPS is on battery and low
+After=nut-server.service
+Wants=nut-server.service
+
+[Service]
+# Shutdown level and debounce come from /etc/econut/econut.conf.
+# LIVE: this powers the machine off. Add --dry-run to ExecStart to only log.
+EnvironmentFile=-/etc/econut/econut.conf
+ExecStart=/usr/local/bin/econut-guard
+# Creates /run/econut for the status file that `econut status` reads.
+RuntimeDirectory=econut
+RuntimeDirectoryMode=0755
+Restart=on-failure
+# Root, so that `systemctl poweroff` is permitted.
+User=root
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
