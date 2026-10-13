@@ -30,6 +30,7 @@ The EcoFlow's USB-A port speaks USB HID Power Device. [NUT](https://networkupsto
 it, and `econut-guard` polls NUT every 5 seconds. The EcoFlow reports battery percentage and
 mains status (`OL` on mains, `OB` on battery) over USB. It does not report watts, load or
 temperature over USB.
+*Note if you're struggling to connect with the USB port on the Ecoflow marked 'HID' and using a USB-C to USB-C cable, change to USB-C - A or use an A adapter to force data / block self negotiation.
 
 ## Requirements
 
