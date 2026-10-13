@@ -1,6 +1,10 @@
 # Deploying econut
 
-Build, then run the installer as root:
+Without a checkout: `go install github.com/x7even/econut/cmd/...@latest`, then
+`sudo ~/go/bin/econut install [installer options]`. This unpacks the embedded copy of this
+directory to a temporary folder and runs the installer below with the same options.
+
+From a checkout, build, then run the installer as root:
 
 ```sh
 go build -o bin/ ./cmd/...

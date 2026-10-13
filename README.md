@@ -41,19 +41,24 @@ temperature over USB.
 
 ## Install
 
+No clone needed. Two commands:
+
 ```sh
-git clone https://github.com/x7even/econut.git
-cd econut
-go build -o bin/ ./cmd/...
-sudo deploy/install.sh --enable-service
+go install github.com/x7even/econut/cmd/...@latest
+sudo ~/go/bin/econut install --enable-service
 ```
+
+(`~/go/bin` is where `go install` puts the binaries; use `$(go env GOBIN)` or `$(go env GOPATH)/bin`
+if you have changed that. The full path matters because `sudo` often does not have it on `PATH`.)
 
 To pick your own shutdown level at install time, add `--shutdown-below 40`.
 
-The installer sets up the udev rule, the NUT configuration, the `econut-guard` service and the
-`econut` command. It is safe to re-run: files that already match are left alone and changed
-ones are backed up. `sudo deploy/install.sh --dry-run` shows what it would do, and `--uninstall`
-removes it.
+The deployment files are built into the `econut` binary. `econut install` sets up the udev rule,
+the NUT configuration, the `econut-guard` service and copies both commands to `/usr/local/bin`. It
+is safe to re-run: files that already match are left alone and changed ones are backed up.
+`sudo ~/go/bin/econut install --dry-run` shows what it would do, and `--uninstall` removes it.
+
+Prefer a checkout? `git clone https://github.com/x7even/econut.git && cd econut && go build -o bin/ ./cmd/... && sudo deploy/install.sh --enable-service` does the same thing.
 
 ## Check it works
 

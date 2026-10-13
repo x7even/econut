@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"econut/internal/status"
+	"github.com/x7even/econut/internal/status"
 )
 
 func snap(updated time.Time) status.Snapshot {
