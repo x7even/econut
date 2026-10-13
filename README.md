@@ -15,10 +15,13 @@ below your chosen charge level for a set time** (default 55% for 120 s).
 
 ```
 $ econut status
-econut-guard: running, ARMED (will power the machine off)
-UPS ecoflow@127.0.0.1:3493: on battery (OB DISCHRG), battery 48%
-Shuts down when: on battery and below 55% for 120s
-Condition: MET for 35s of 120s, would shut down in 85s
+● econut-guard: running, ARMED (will power the machine off)
+
+  UPS        ecoflow@127.0.0.1:3493
+  Power      on battery (OB DISCHRG)
+  Battery    ██████████░░░░░░░░░░ 48%
+  Shutdown   when on battery and below 55% for 120s
+  Condition  MET for 35s of 120s, shuts down in 85s
 ```
 
 Pick your own level at install time with `--shutdown-below N`, or any time later with

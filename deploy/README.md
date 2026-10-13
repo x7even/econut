@@ -37,11 +37,16 @@ sudo econut set --shutdown-below 40 --debounce 90s
 
 ```
 $ econut status
-econut-guard: running, ARMED (will power the machine off)
-UPS ecoflow@127.0.0.1:3493: on mains (OL CHRG), battery 99%
-Shuts down when: on battery and below 55% for 120s
-Condition: not met (on mains)
+● econut-guard: running, ARMED (will power the machine off)
+
+  UPS        ecoflow@127.0.0.1:3493
+  Power      on mains (OL CHRG)
+  Battery    ████████████████████ 99%
+  Shutdown   when on battery and below 55% for 120s
+  Condition  not met (on mains)
 ```
+
+Colours appear on a terminal; they are off when piped, with `NO_COLOR` set, or `TERM=dumb`.
 
 `econut status --json` prints the raw snapshot. The exit status is 0 when the guard is running and 1 when it isn't, so it works in scripts.
 

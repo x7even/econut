@@ -22,6 +22,16 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, time.Now()))
 }
 
+// useColor reports whether out is a terminal and the user has not set NO_COLOR.
+func useColor(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	if !ok || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 func run(args []string, out, errOut io.Writer, now time.Time) int {
 	if len(args) > 0 && args[0] == "set" {
 		return runSet(args[1:], out, errOut)
@@ -56,7 +66,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		enc.SetIndent("", "  ")
 		enc.Encode(s)
 	} else {
-		fmt.Fprint(out, status.Render(s, now))
+		fmt.Fprint(out, status.RenderColor(s, now, useColor(out)))
 	}
 	if !s.Fresh(now) {
 		return 1

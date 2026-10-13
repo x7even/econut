@@ -36,12 +36,12 @@ func TestRender(t *testing.T) {
 		deny []string
 	}{
 		{"mains", mains, now,
-			[]string{"running", "dry-run", "will NOT shut down", "on mains", "99%", "below 55%", "120s", "Condition: not met"},
+			[]string{"running", "dry-run", "will NOT shut down", "on mains", "99%", "below 55%", "120s", "Condition  not met"},
 			[]string{"NOT RUNNING"}},
 		{"on battery above level", highBatt, now,
-			[]string{"on battery", "80%", "Condition: not met", "not below 55%"}, nil},
+			[]string{"on battery", "80%", "Condition  not met", "not below 55%"}, nil},
 		{"counting down", base, now,
-			[]string{"on battery", "48%", "Condition: MET", "35s of 120s", "85s"}, nil},
+			[]string{"on battery", "48%", "Condition  MET", "35s of 120s", "85s"}, nil},
 		{"armed for real", enabled, now,
 			[]string{"running, ARMED", "will power the machine off", "shuts down in 85s"}, []string{"will NOT", "dry-run"}},
 		{"dry-run triggered", triggered, now,
@@ -53,6 +53,34 @@ func TestRender(t *testing.T) {
 		{"guard gone quiet", base, base.Updated.Add(90 * time.Second),
 			[]string{"NOT RUNNING", "1m30s ago"}, []string{"Condition"}},
 	}
+	t.Run("layout", func(t *testing.T) {
+		got := Render(mains, now)
+		for _, w := range []string{"● econut-guard: running", "UPS        ecoflow@", "Power      on mains (OL CHRG)",
+			"Battery    ████████████████████ 99%", "Shutdown   when on battery and below 55% for 120s", "Condition  not met"} {
+			if !strings.Contains(got, w) {
+				t.Errorf("missing %q in:\n%s", w, got)
+			}
+		}
+		if strings.Contains(got, "\x1b[") {
+			t.Errorf("Render must not emit colour codes:\n%q", got)
+		}
+	})
+	t.Run("bar edges", func(t *testing.T) {
+		for charge, want := range map[float64]string{0: "░░░░░░░░░░░░░░░░░░░░", 100: "████████████████████", 48: "██████████░░░░░░░░░░"} {
+			if got := bar(charge); got != want {
+				t.Errorf("bar(%v) = %q, want %q", charge, got, want)
+			}
+		}
+	})
+	t.Run("colour", func(t *testing.T) {
+		got := RenderColor(mains, now, true)
+		if !strings.Contains(got, "\x1b[") || !strings.Contains(got, "running") {
+			t.Errorf("expected colour codes:\n%q", got)
+		}
+		if RenderColor(mains, now, false) != Render(mains, now) {
+			t.Error("RenderColor(false) must equal Render")
+		}
+	})
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := Render(c.s, c.now)
