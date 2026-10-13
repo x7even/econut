@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"econut/internal/nut"
-	"econut/internal/policy"
-	"econut/internal/status"
+	"github.com/x7even/econut/internal/nut"
+	"github.com/x7even/econut/internal/policy"
+	"github.com/x7even/econut/internal/status"
 )
 
 type seqSource struct {

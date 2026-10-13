@@ -3,6 +3,7 @@
 //
 //	econut [status] [--json] [--file PATH]
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
+//	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
 //
 // Exit status: 0 ok / guard running, 1 guard not running or a failure, 2 usage error.
 package main
@@ -15,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	"econut/internal/status"
+	"github.com/x7even/econut/internal/status"
 )
 
 func main() {
@@ -33,6 +34,9 @@ func useColor(out io.Writer) bool {
 }
 
 func run(args []string, out, errOut io.Writer, now time.Time) int {
+	if len(args) > 0 && args[0] == "install" {
+		return runInstall(args[1:], out, errOut)
+	}
 	if len(args) > 0 && args[0] == "set" {
 		return runSet(args[1:], out, errOut)
 	}

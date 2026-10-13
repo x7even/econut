@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"econut/internal/actuator"
-	"econut/internal/guard"
-	"econut/internal/nut"
-	"econut/internal/policy"
-	"econut/internal/status"
+	"github.com/x7even/econut/internal/actuator"
+	"github.com/x7even/econut/internal/guard"
+	"github.com/x7even/econut/internal/nut"
+	"github.com/x7even/econut/internal/policy"
+	"github.com/x7even/econut/internal/status"
 )
 
 // envFloat returns the float in environment variable key, or def if it is
