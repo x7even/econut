@@ -34,7 +34,7 @@ APIs, controlling the EcoFlow.
 ## Architecture
 
 ```
-EcoFlow --USB HID--> usbhid-ups --> upsd (127.0.0.1:3493) --> econut-guard --> [dry-run log | poweroff]
+EcoFlow --USB HID--> usbhid-ups --> upsd (127.0.0.1:3493) --> econut-guard --> [poweroff | dry-run log]
 ```
 
 Module `econut-guard`, Go standard library only.
@@ -68,13 +68,13 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
 
 Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
 `--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`. Also
-`--enable-shutdown` (off by default) and `--once` (diagnostic: read once, print, exit).
+`--dry-run` (log instead of shutting down), `--status-file` and `--once` (diagnostic: read once, print, exit).
 
 ### Actuator
 
-- `LogOnly` logs `WOULD shut down: on battery, charge X% < 55% for 120s`.
-- `Poweroff` runs `systemctl poweroff` and is only constructed when
-  `--enable-shutdown` is set. The daemon is not enabled as a service during development.
+- `LogOnly` (`--dry-run`) logs `WOULD shut down (--dry-run)`.
+- `Poweroff` runs `systemctl poweroff` and is the default actuator.
+  The installer only starts the service when given `--enable-service`.
 
 ## Testing
 
