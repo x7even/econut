@@ -1,6 +1,6 @@
 # econut
 
-Safe shutdown for a Linux machine powered through an **EcoFlow Delta 3 Ultra Plus**.
+Safe shutdown for a Linux machine powered through an **EcoFlow Delta 3 Ultra Plus** or other EcoFlow UPS NUT/HID Supported Backup Battery.
 
 When mains power fails and the EcoFlow's battery runs down to a level you choose, `econut-guard`
 shuts your machine down cleanly, before the battery runs out and cuts power hard. If mains comes
