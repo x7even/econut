@@ -33,9 +33,14 @@ type Guard struct {
 	Target string                // NUT target as given by the user
 	Report func(status.Snapshot) // called after every completed poll
 
-	st          policy.State
-	staleLogged bool
-	lastVars    map[string]string
+	st             policy.State
+	blindReads     int           // consecutive failed reads in the current run
+	blindFor       time.Duration // BlindFor at the last failed read, for the recovery line
+	blindWarned    bool          // a WARN has been emitted for this run
+	lastErrText    string        // error text of the last failed read in this run
+	escalated      bool          // the Stale ERROR has been emitted for this run
+	nextEscalation time.Time
+	lastVars       map[string]string
 }
 
 // onBattery reports whether ups.status contains the exact token "OB".
@@ -61,24 +66,14 @@ func (g *Guard) Tick(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	if err != nil {
-		g.Log.Warn("NUT read failed", "err", err)
-	} else {
-		g.logChanges(r)
-	}
-
+	// Exactly one clock read per tick, after the read, so a simulated clock
+	// advances once per poll. Step comes before the logging because the level
+	// a read failure deserves depends on how long it has been failing.
 	now := g.Now()
 	st, res := policy.Step(g.Cfg, g.st, toSample(r, err), now)
 	g.st = st
 
-	if res.StaleOnBattery {
-		if !g.staleLogged {
-			g.Log.Error("NUT data stale while on battery", "stale_after", g.Cfg.StaleAfter)
-			g.staleLogged = true
-		}
-	} else {
-		g.staleLogged = false
-	}
+	g.logHealth(now, r, err, res)
 
 	if res.Decision == policy.Shutdown {
 		reason := fmt.Sprintf("on battery, charge %.0f%% < %.0f%% for %s", r.Charge, g.Cfg.ShutdownBelow, g.Cfg.Debounce)
@@ -87,7 +82,39 @@ func (g *Guard) Tick(ctx context.Context) {
 			g.st.Triggered = false
 		}
 	}
-	g.report(now, r, err)
+	g.report(now, r, err, res)
+}
+
+// logHealth records read failures, escalations and recovery at a bounded rate:
+// days of failed polls must not flood the journal, and silence must not hide
+// them either.
+func (g *Guard) logHealth(now time.Time, r nut.Reading, readErr error, res policy.Result) {
+	if readErr == nil {
+		if g.blindReads > 0 {
+			g.Log.Info("UPS reading recovered",
+				"blind_for", g.blindFor.Round(time.Second), "failed_reads", g.blindReads)
+		}
+		g.blindReads, g.blindFor, g.blindWarned, g.lastErrText = 0, 0, false, ""
+		g.escalated, g.nextEscalation = false, time.Time{}
+		g.logChanges(r)
+		return
+	}
+	g.blindReads++
+	g.blindFor = res.BlindFor
+	if txt := readErr.Error(); !g.blindWarned || txt != g.lastErrText {
+		g.Log.Warn("NUT read failed", "err", readErr,
+			"failed_reads", g.blindReads, "blind_for", res.BlindFor.Round(time.Second))
+		g.blindWarned, g.lastErrText = true, txt
+	}
+	// Edge-triggered on Stale going false->true, then once per window: a
+	// reading that has been unusable for this long is an incident whatever
+	// the last reading said, because nothing is watching the battery.
+	if res.Stale && (!g.escalated || !now.Before(g.nextEscalation)) {
+		g.Log.Error("not protected: no usable UPS reading",
+			"blind_for", res.BlindFor.Round(time.Second), "stale_after", g.Cfg.StaleAfter,
+			"ever_valid", res.EverValid, "failed_reads", g.blindReads, "err", readErr)
+		g.escalated, g.nextEscalation = true, now.Add(g.Cfg.StaleAfter)
+	}
 }
 
 // noisyVars change on every poll and would drown out the events worth seeing.
@@ -145,7 +172,7 @@ func (g *Guard) logChanges(r nut.Reading) {
 	}
 }
 
-func (g *Guard) report(now time.Time, r nut.Reading, readErr error) {
+func (g *Guard) report(now time.Time, r nut.Reading, readErr error, res policy.Result) {
 	if g.Report == nil {
 		return
 	}
@@ -158,6 +185,11 @@ func (g *Guard) report(now time.Time, r nut.Reading, readErr error) {
 		DebounceSecs:  g.Cfg.Debounce.Seconds(),
 		HeldSecs:      g.st.Held.Seconds(),
 		Triggered:     g.st.Triggered,
+		BlindSeconds:  res.BlindFor.Seconds(),
+		EverValid:     res.EverValid,
+		// Published so `econut status` can name the escalation threshold
+		// without being configured itself.
+		StaleAfterSecs: g.Cfg.StaleAfter.Seconds(),
 	}
 	if readErr != nil {
 		s.Error = readErr.Error()

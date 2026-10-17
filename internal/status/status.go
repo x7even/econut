@@ -32,6 +32,10 @@ type Snapshot struct {
 	OnBattery bool    `json:"on_battery"`
 	HeldSecs  float64 `json:"held_seconds"` // how long the trigger condition has held
 	Triggered bool    `json:"triggered"`
+
+	BlindSeconds   float64 `json:"blind_seconds"`       // how long readings have been unusable; 0 when valid
+	EverValid      bool    `json:"ever_valid"`          // false until the guard has had one usable reading
+	StaleAfterSecs float64 `json:"stale_after_seconds"` // --stale-after: the escalation threshold
 }
 
 // Fresh reports whether the snapshot is recent enough to mean the guard is

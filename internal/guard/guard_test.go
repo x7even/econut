@@ -166,22 +166,6 @@ func TestCancelledContextNeverTriggers(t *testing.T) {
 	}
 }
 
-func TestStaleWarningLoggedOnce(t *testing.T) {
-	var buf bytes.Buffer
-	act := &fakeAct{}
-	src := &seqSource{readings: []nut.Reading{{Status: "OB", Charge: 80}, {}}}
-	// first read valid, rest return an error
-	src.errs = []error{nil, errors.New("down")}
-	g := newGuard(src, act, &buf)
-	tick(g, 200)
-	if n := strings.Count(buf.String(), "NUT data stale while on battery"); n != 1 {
-		t.Fatalf("stale logged %d times, want 1", n)
-	}
-	if act.calls != 0 {
-		t.Fatalf("calls = %d, want 0", act.calls)
-	}
-}
-
 func TestRunStopsOnCancel(t *testing.T) {
 	var buf bytes.Buffer
 	act := &fakeAct{}
@@ -214,7 +198,7 @@ func (f funcSource) Read(ctx context.Context) (nut.Reading, error) { return f(ct
 func TestReportPublishesSnapshotEachTick(t *testing.T) {
 	var buf bytes.Buffer
 	g := newGuard(constSrc("OB DISCHRG", 48), &fakeAct{}, &buf)
-	g.Mode, g.Target = status.ModeDryRun, "ecoflow@127.0.0.1:3493"
+	g.Mode, g.Target = status.ModeDryRun, "<ups>"
 	var snaps []status.Snapshot
 	g.Report = func(s status.Snapshot) { snaps = append(snaps, s) }
 
@@ -227,7 +211,7 @@ func TestReportPublishesSnapshotEachTick(t *testing.T) {
 	if !last.Valid || !last.OnBattery || last.Charge != 48 || last.UPSStatus != "OB DISCHRG" {
 		t.Fatalf("reading not reflected: %+v", last)
 	}
-	if last.Mode != status.ModeDryRun || last.UPS != "ecoflow@127.0.0.1:3493" ||
+	if last.Mode != status.ModeDryRun || last.UPS != "<ups>" ||
 		last.ShutdownBelow != 55 || last.DebounceSecs != 120 || last.PollSeconds != 5 {
 		t.Fatalf("config not reflected: %+v", last)
 	}
@@ -295,4 +279,154 @@ func TestNilReportIsFine(t *testing.T) {
 	var buf bytes.Buffer
 	g := newGuard(constSrc("OL", 100), &fakeAct{}, &buf)
 	tick(g, 2) // must not panic
+}
+
+func TestBlindOnMainsEscalates(t *testing.T) {
+	var buf bytes.Buffer
+	act := &fakeAct{}
+	src := &seqSource{
+		readings: []nut.Reading{{Status: "OL", Charge: 100}, {}},
+		errs:     []error{nil, errors.New("nut: <ups> ups.status: DRIVER-NOT-CONNECTED")},
+	}
+	g := newGuard(src, act, &buf)
+	tick(g, 200)
+	if !strings.Contains(buf.String(), "level=ERROR") {
+		t.Fatalf("telemetry died on mains and stayed dead: that must escalate, got only:\n%s", buf.String())
+	}
+	if act.calls != 0 {
+		t.Fatalf("calls = %d, want 0: blindness must never power the machine off", act.calls)
+	}
+}
+
+func TestBlindFromFirstPollEscalates(t *testing.T) {
+	var buf bytes.Buffer
+	act := &fakeAct{}
+	src := &seqSource{readings: []nut.Reading{{}}, errs: []error{errors.New("nut: connect refused")}}
+	g := newGuard(src, act, &buf)
+	tick(g, 200)
+	if !strings.Contains(buf.String(), "level=ERROR") {
+		t.Fatalf("a guard that never once read the UPS must escalate, got only:\n%s", buf.String())
+	}
+	if act.calls != 0 {
+		t.Fatalf("calls = %d, want 0", act.calls)
+	}
+}
+
+// TestFirstEscalationIsIndexPrecise pins the escalation to the first poll where
+// the blind time actually exceeds --stale-after. With a 5s poll the first read
+// is blind for 0s, so 300s is first exceeded on tick 62 (305s); a shared
+// "time since the last log line" window would land it near twice that.
+func TestFirstEscalationIsIndexPrecise(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{readings: []nut.Reading{{}}, errs: []error{errors.New("nut: connect refused")}}
+	g := newGuard(src, &fakeAct{}, &buf)
+	first := 0
+	for i := 1; i <= 100; i++ {
+		before := buf.Len()
+		g.Tick(context.Background())
+		if first == 0 && strings.Contains(buf.String()[before:], "level=ERROR") {
+			first = i
+		}
+	}
+	if first != 62 {
+		t.Fatalf("first ERROR on tick %d, want 62 (blind_for 305s > stale_after 300s)", first)
+	}
+	if !strings.Contains(buf.String(), "blind_for=5m5s") {
+		t.Fatalf("escalation must report how long it has been blind:\n%s", buf.String())
+	}
+}
+
+// TestFailureLoggingIsBounded bounds the journal volume: the field incident
+// emitted one warning per poll for days and never escalated.
+func TestFailureLoggingIsBounded(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{readings: []nut.Reading{{}}, errs: []error{errors.New("nut: connect refused")}}
+	g := newGuard(src, &fakeAct{}, &buf)
+	tick(g, 200)
+	n := strings.Count(buf.String(), "NUT read failed") + strings.Count(buf.String(), "not protected")
+	if n > 6 {
+		t.Fatalf("%d failure lines over 200 failed polls, want at most 6", n)
+	}
+	if n < 2 {
+		t.Fatalf("%d failure lines: a days-long outage must not be silent either", n)
+	}
+}
+
+func TestChangedErrorTextLogsAgain(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{
+		readings: []nut.Reading{{}, {}, {}},
+		errs: []error{
+			errors.New("nut: connect refused"),
+			errors.New("nut: connect refused"),
+			errors.New("nut: <ups> ups.status: DRIVER-NOT-CONNECTED"),
+		},
+	}
+	g := newGuard(src, &fakeAct{}, &buf)
+	tick(g, 20)
+	if n := strings.Count(buf.String(), "NUT read failed"); n != 2 {
+		t.Fatalf("warned %d times, want 2: a new error text is new information", n)
+	}
+}
+
+func TestRecoveryIsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{
+		readings: []nut.Reading{{}, {}, {Status: "OL", Charge: 100}},
+		errs:     []error{errors.New("nut: connect refused"), errors.New("nut: connect refused"), nil},
+	}
+	g := newGuard(src, &fakeAct{}, &buf)
+	tick(g, 5)
+	if n := strings.Count(buf.String(), "UPS reading recovered"); n != 1 {
+		t.Fatalf("recovery logged %d times, want 1:\n%s", n, buf.String())
+	}
+	if !strings.Contains(buf.String(), "failed_reads=2") {
+		t.Fatalf("recovery must say how many reads failed:\n%s", buf.String())
+	}
+}
+
+func TestSnapshotCarriesBlindFacts(t *testing.T) {
+	var buf bytes.Buffer
+	src := &seqSource{
+		readings: []nut.Reading{{}, {}, {}, {Status: "OL", Charge: 100}},
+		errs: []error{
+			errors.New("nut: connect refused"), errors.New("nut: connect refused"),
+			errors.New("nut: connect refused"), nil,
+		},
+	}
+	g := newGuard(src, &fakeAct{}, &buf)
+	var snaps []status.Snapshot
+	g.Report = func(s status.Snapshot) { snaps = append(snaps, s) }
+	tick(g, 4)
+
+	for i, s := range snaps[:3] {
+		if s.Valid || s.EverValid {
+			t.Fatalf("snapshot %d: a guard that has never read the UPS must say so: %+v", i, s)
+		}
+		if s.StaleAfterSecs != 300 {
+			t.Fatalf("snapshot %d: StaleAfterSecs = %v, want 300", i, s.StaleAfterSecs)
+		}
+		if want := float64(i) * 5; s.BlindSeconds != want {
+			t.Fatalf("snapshot %d: BlindSeconds = %v, want %v", i, s.BlindSeconds, want)
+		}
+	}
+	last := snaps[3]
+	if !last.Valid || !last.EverValid || last.BlindSeconds != 0 {
+		t.Fatalf("a usable reading must clear the blind facts: %+v", last)
+	}
+}
+
+// TestNowCalledOncePerTick pins the invariant the whole guard suite rests on:
+// the simulated clock advances once per poll, so an extra clock read would
+// silently shift every timeline in these tests.
+func TestNowCalledOncePerTick(t *testing.T) {
+	var buf bytes.Buffer
+	g := newGuard(constSrc("OL", 100), &fakeAct{}, &buf)
+	calls := 0
+	inner := g.Now
+	g.Now = func() time.Time { calls++; return inner() }
+	tick(g, 10)
+	if calls != 10 {
+		t.Fatalf("Now called %d times over 10 ticks, want 10", calls)
+	}
 }
