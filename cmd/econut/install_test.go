@@ -33,7 +33,8 @@ func TestInstallStagesFilesAndRunsInstaller(t *testing.T) {
 		root := filepath.Dir(filepath.Dir(path))
 		staged = map[string]os.FileMode{}
 		for _, rel := range []string{"deploy/install.sh", "deploy/econut-guard.service", "deploy/99-ecoflow-ups.rules",
-			"deploy/nut.conf", "deploy/ups.conf", "deploy/upsd.conf", "deploy/upsd.users", "deploy/econut.conf",
+			"deploy/nut.conf", "deploy/ups.conf", "deploy/upsd.conf", "deploy/upsd.users", "deploy/upsmon.conf",
+			"deploy/econut.conf",
 			"bin/econut", "bin/econut-guard"} {
 			fi, err := os.Stat(filepath.Join(root, rel))
 			if err != nil {

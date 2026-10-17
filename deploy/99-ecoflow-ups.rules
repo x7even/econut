@@ -1,2 +1,8 @@
 # EcoFlow Delta 3 Ultra Plus (USB HID port): let the nut group open it.
 SUBSYSTEM=="usb", ATTR{idVendor}=="3746", ATTR{idProduct}=="ffff", MODE="0660", GROUP="nut"
+
+# The same unit also exposes a CDC-ACM serial interface, which ModemManager
+# treats as a modem candidate and probes with AT commands. Tell it to keep
+# away from every interface of this device.
+# Verify after installing: udevadm info -n /dev/ttyACM0 | grep ID_MM
+ACTION!="remove", ATTRS{idVendor}=="3746", ATTRS{idProduct}=="ffff", ENV{ID_MM_DEVICE_IGNORE}="1"
