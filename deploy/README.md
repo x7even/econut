@@ -16,10 +16,10 @@ sudo deploy/install.sh --shutdown-below 30   # or pick your own level
 The installer:
 
 1. installs the udev rule (`99-ecoflow-ups.rules`) so group `nut` can open the EcoFlow (`3746:ffff`), and tells ModemManager to leave the unit's serial interface alone (`ID_MM_DEVICE_IGNORE`);
-2. installs `nut.conf`, `ups.conf`, `upsd.conf`, `upsd.users` and `upsmon.conf` into `/etc/nut` (mode 0640, group `nut`), generating a random password for `upsd.users`, and restarts NUT. It then checks that `nut-monitor` is actually running and stops with an error if it is not, because that unit is the backstop described below;
+2. installs `nut.conf`, `ups.conf`, `upsd.conf`, `upsd.users` and `upsmon.conf` into `/etc/nut` (mode 0640, group `nut`), generating a random password for `upsd.users`, and restarts NUT;
 3. writes `/etc/econut/econut.conf` (the shutdown level and debounce). An existing file is kept unless you pass `--shutdown-below`;
 4. installs `/usr/local/bin/econut-guard`, `/usr/local/bin/econut` and the systemd unit (enabled only with `--enable-service`; a running guard is restarted);
-5. runs `econut-guard --once` to prove it can read the battery through NUT.
+5. runs `econut-guard --once` to prove it can read the battery through NUT, then checks the backstop: `nut-monitor` must be running *and* present in `upsd`'s client list, since upsmon given a password `upsd` rejects stays up and retries the login for ever. Either check failing stops the installer with an error.
 
 Existing files that differ are backed up as `<file>.bak.<timestamp>`; identical files are left alone, so re-running is safe. A leftover `ups-guard` install (the old name) is removed.
 
@@ -146,7 +146,9 @@ econut-guard is not the only thing that can shut the machine down, and that is d
 | 1 | `econut-guard` | on battery, charge below `ECONUT_SHUTDOWN_BELOW` (55% by default), held for the debounce |
 | 2 | `upsmon` (`nut-monitor.service`) | the UPS itself reports low battery (`OB LB`), i.e. at the device's `battery.charge.low` |
 
-Tier 1 is the point of this project: shut down early, with plenty of charge left. Tier 2 exists for the case tier 1 cannot cover - the guard is dead, wedged, or blind (the `NOT PROTECTED` states above). On the Delta 3 Ultra Plus the device reports `battery.charge.low: 8`, far under the default level, so the guard normally acts long before upsmon does. Check your own unit with `upsc <ups>@localhost battery.charge.low`.
+Tier 1 is the point of this project: shut down early, with plenty of charge left. Tier 2 covers the case where the econut-guard **process** is gone - stopped, crashed, wedged, never enabled, or running in `--dry-run` - while NUT itself still works. On the Delta 3 Ultra Plus the device reports `battery.charge.low: 8`, far under the default level, so the guard normally acts long before upsmon does. Check your own unit with `upsc <ups>@localhost battery.charge.low`.
+
+**What tier 2 does not cover.** upsmon reads the UPS through the same driver and the same `upsd` as econut-guard, so it is not an independent path to the battery. If the driver or `upsd` dies - the `DRIVER-NOT-CONNECTED` case in the status example above - both are blind, and upsmon will not shut down: it raises `NOCOMM` and only ever acts on `OB LB` or `FSD`, neither of which can arrive once the readings stop. A blind guard is therefore still an outage you have to react to, which is what `econut check` and the timer below are for. Tier 2 is a second *decision maker*, not a second *sensor*.
 
 The ordering only holds while the configured level is above that threshold. Set `--shutdown-below` at or under it and upsmon gets there first, making the level you set meaningless; the installer warns when it sees that.
 
