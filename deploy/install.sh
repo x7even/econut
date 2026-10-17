@@ -11,6 +11,8 @@
 #
 # The installed service is LIVE: once running it powers the machine off when the
 # condition is met (on battery and below the level for the debounce period).
+# NUT's own upsmon is configured as a last-resort backstop below that level,
+# for the case where econut-guard is dead or cannot read the UPS.
 # Re-running is fine: unchanged files are left alone, changed ones are backed up.
 set -euo pipefail
 
@@ -23,7 +25,7 @@ while [ $# -gt 0 ]; do
     --shutdown-below) [ $# -ge 2 ] || { echo "--shutdown-below needs a value" >&2; exit 2; }
                      TRIGGER=$2; TRIGGER_SET=1; shift ;;
     --shutdown-below=*) TRIGGER=${1#*=}; TRIGGER_SET=1 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -38,6 +40,57 @@ CONF=/etc/econut/econut.conf
 say()  { printf '==> %s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 run()  { if [ "$DRY" = 1 ]; then printf '[dry-run] %s\n' "$*"; else "$@"; fi; }
+
+# Some of the temporaries below hold the NUT monitor password, so collect them
+# all in one place and clear them on any exit.
+TMPFILES=()
+cleanup() { [ ${#TMPFILES[@]} -eq 0 ] || rm -f "${TMPFILES[@]}"; }
+trap cleanup EXIT
+# Dying on a signal - including the SIGPIPE from piping this into head - would
+# otherwise skip the EXIT trap and leave a password behind in /tmp.
+trap 'exit 1' INT TERM HUP PIPE
+# mktempf VARNAME -- make a temporary file, remember it for cleanup, and put its
+# path in VARNAME. It assigns rather than prints because a $(...) call would run
+# in a subshell, where appending to TMPFILES would be thrown away.
+mktempf() {
+  local f
+  f=$(mktemp) || die "cannot create a temporary file"
+  TMPFILES+=("$f")
+  printf -v "$1" '%s' "$f"
+}
+
+# monitor_password FILE -- the password from the [monitor] section of upsd.users.
+# A re-run keeps whatever password is already installed, so the MONITOR line in
+# upsmon.conf has to be built from the live file rather than from a fresh one.
+monitor_password() {
+  [ -r "$1" ] || return 1
+  local pw
+  pw=$(awk '
+    /^[[:space:]]*\[/ { inmon = ($0 ~ /^[[:space:]]*\[monitor\][[:space:]]*$/); next }
+    inmon && /^[[:space:]]*password[[:space:]]*=/ {
+      sub(/^[[:space:]]*password[[:space:]]*=[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      print; exit
+    }
+  ' "$1")
+  # An empty result has to fail: a MONITOR line with no password is precisely
+  # the broken config that leaves nut-monitor dead.
+  [ -n "$pw" ] || return 1
+  printf '%s\n' "$pw"
+}
+
+# fill_placeholder SRC PW -- SRC with the password placeholder replaced, by
+# literal substring so nothing in the password is read as a metacharacter.
+fill_placeholder() {
+  # The password goes through the environment, not -v: awk expands backslash
+  # escapes in a -v assignment, which would corrupt a password containing one.
+  econut_pw=$2 awk '
+    { ph = "CHANGE-ME-before-installing"
+      i = index($0, ph)
+      if (i) $0 = substr($0, 1, i - 1) ENVIRON["econut_pw"] substr($0, i + length(ph))
+      print }
+  ' "$1"
+}
 
 if [ "$TRIGGER_SET" = 1 ]; then
   # A number in (0, 100]; the guard validates again, but fail before touching anything.
@@ -128,13 +181,40 @@ install_file "$HERE/upsd.conf"  /etc/nut/upsd.conf  0640 root:nut && changed=1
 # upsd.users holds a password: generate one rather than shipping a default, and
 # keep an existing install's password so re-runs don't churn it.
 if [ -f /etc/nut/upsd.users ] && grep -q '^\[monitor\]' /etc/nut/upsd.users 2>/dev/null; then
-  say "unchanged: /etc/nut/upsd.users (monitor user already present)"
+  # Earlier versions granted the monitor user the 'primary' upsmon role, which
+  # authorises the POWERDOWNFLAG path described in upsmon.conf. econut never
+  # wants it, so take it away from installs that already have it.
+  if grep -q '^[[:space:]]*upsmon[[:space:]]\+primary[[:space:]]*$' /etc/nut/upsd.users; then
+    run cp -p /etc/nut/upsd.users "/etc/nut/upsd.users.bak.$STAMP"
+    run sed -i 's/^\([[:space:]]*\)upsmon[[:space:]]\+primary[[:space:]]*$/\1upsmon secondary/' /etc/nut/upsd.users
+    say "downgraded the monitor user from upsmon primary to secondary in /etc/nut/upsd.users"
+    changed=1
+  else
+    say "unchanged: /etc/nut/upsd.users (monitor user already present)"
+  fi
 else
-  tmp=$(mktemp)
-  trap 'rm -f "$tmp"' EXIT
+  mktempf tmp
   pw=$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')
   sed "s/CHANGE-ME-before-installing/$pw/" "$HERE/upsd.users" >"$tmp"
   install_file "$tmp" /etc/nut/upsd.users 0640 root:nut && changed=1
+fi
+
+# MODE=standalone means the distro also runs upsmon (nut-monitor.service).
+# The packaged upsmon.conf has no MONITOR line, so upsmon exits straight away
+# and the unit sits in 'failed' -- a permanently red systemctl and, more to the
+# point, no backstop at all if econut-guard stops working. Give it a real
+# config, with the password that is actually in upsd.users.
+say "upsmon backstop (/etc/nut/upsmon.conf)"
+if monpw=$(monitor_password /etc/nut/upsd.users); then
+  mktempf tmpmon
+  fill_placeholder "$HERE/upsmon.conf" "$monpw" >"$tmpmon"
+  install_file "$tmpmon" /etc/nut/upsmon.conf 0640 root:nut && changed=1
+elif [ "$DRY" = 1 ]; then
+  say "[dry-run] /etc/nut/upsd.users is not readable as $(id -un); would install"
+  say "[dry-run] /etc/nut/upsmon.conf with the monitor password taken from it"
+else
+  die "no monitor password found in /etc/nut/upsd.users, so the MONITOR line in
+    upsmon.conf would not work; check the [monitor] section of that file"
 fi
 
 if [ "$changed" = 1 ]; then
@@ -143,14 +223,33 @@ if [ "$changed" = 1 ]; then
     say "note: nut-driver-enumerator not present, continuing"
   run systemctl restart "nut-driver@$UPS_NAME.service" 2>/dev/null || true
   run systemctl restart nut-server.service
+  # upsmon needs upsd up before it can log in, so it goes last.
+  run systemctl reset-failed nut-monitor.service 2>/dev/null || true
+  run systemctl restart nut-monitor.service
+fi
+
+# A re-run that changed nothing still has to deal with a unit left failed by an
+# earlier install, and the backstop only exists if upsmon actually stayed up.
+if [ "$DRY" = 0 ]; then
+  if ! systemctl is-active --quiet nut-monitor.service; then
+    say "nut-monitor is not running; clearing the failed state and starting it"
+    run systemctl reset-failed nut-monitor.service 2>/dev/null || true
+    run systemctl restart nut-monitor.service 2>/dev/null || true
+    sleep 2
+  fi
+  if systemctl is-active --quiet nut-monitor.service; then
+    say "OK: upsmon is running; it shuts down if the UPS reports low battery"
+  else
+    die "nut-monitor is not running, so there is no low-battery backstop:
+    systemctl status nut-monitor; journalctl -u nut-monitor -n 20"
+  fi
 fi
 
 # ---- 3. econut config -------------------------------------------------------
 say "econut config ($CONF)"
 run install -d -m 0755 /etc/econut
 if [ ! -f "$CONF" ]; then
-  tmp2=$(mktemp)
-  trap 'rm -f "${tmp:-}" "$tmp2"' EXIT
+  mktempf tmp2
   sed "s/^ECONUT_SHUTDOWN_BELOW=.*/ECONUT_SHUTDOWN_BELOW=${TRIGGER:-55}/" "$HERE/econut.conf" >"$tmp2"
   install_file "$tmp2" "$CONF" 0644
 else
@@ -196,6 +295,17 @@ if [ "$DRY" = 0 ]; then
     say "OK: econut-guard can read the EcoFlow through NUT"
   else
     die "econut-guard --once failed; check: systemctl status nut-server nut-driver@$UPS_NAME; upsc $UPS_NAME@localhost"
+  fi
+  # econut-guard is meant to act well before the UPS calls low battery. If the
+  # level has been set at or under the UPS's own threshold, upsmon gets there
+  # first and the configured level never does anything.
+  low=$(upsc "$UPS_NAME@localhost" battery.charge.low 2>/dev/null || true)
+  lvl=$(sed -n 's/^ECONUT_SHUTDOWN_BELOW=//p' "$CONF" 2>/dev/null | head -1)
+  if [ -n "$low" ] && [ -n "$lvl" ] &&
+     awk -v a="$lvl" -v b="$low" 'BEGIN { exit !(a <= b) }'; then
+    say "warning: ECONUT_SHUTDOWN_BELOW=$lvl is at or below the UPS low-battery
+    level ($low%), so the upsmon backstop would fire first and the level you set
+    would never trigger; raise it with: sudo econut set --shutdown-below N"
   fi
   if systemctl is-active --quiet econut-guard.service; then
     sleep 6

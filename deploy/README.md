@@ -15,8 +15,8 @@ sudo deploy/install.sh --shutdown-below 30   # or pick your own level
 
 The installer:
 
-1. installs the udev rule (`99-ecoflow-ups.rules`) so group `nut` can open the EcoFlow (`3746:ffff`);
-2. installs `nut.conf`, `ups.conf`, `upsd.conf` and `upsd.users` into `/etc/nut` (mode 0640, group `nut`), generating a random password for `upsd.users`, and restarts NUT;
+1. installs the udev rule (`99-ecoflow-ups.rules`) so group `nut` can open the EcoFlow (`3746:ffff`), and tells ModemManager to leave the unit's serial interface alone (`ID_MM_DEVICE_IGNORE`);
+2. installs `nut.conf`, `ups.conf`, `upsd.conf`, `upsd.users` and `upsmon.conf` into `/etc/nut` (mode 0640, group `nut`), generating a random password for `upsd.users`, and restarts NUT. It then checks that `nut-monitor` is actually running and stops with an error if it is not, because that unit is the backstop described below;
 3. writes `/etc/econut/econut.conf` (the shutdown level and debounce). An existing file is kept unless you pass `--shutdown-below`;
 4. installs `/usr/local/bin/econut-guard`, `/usr/local/bin/econut` and the systemd unit (enabled only with `--enable-service`; a running guard is restarted);
 5. runs `econut-guard --once` to prove it can read the battery through NUT.
@@ -136,6 +136,26 @@ Note that `--stale-after` sets both the escalation threshold and the longest gap
 ## The shutdown is live
 
 The service runs as root and executes `systemctl poweroff` when the machine is on battery and below the level for the debounce period. To only log instead (for testing), add `--dry-run` to `ExecStart` in `/etc/systemd/system/econut-guard.service`, then `sudo systemctl daemon-reload && sudo systemctl restart econut-guard`.
+
+## The low-battery backstop
+
+econut-guard is not the only thing that can shut the machine down, and that is deliberate.
+
+| tier | who acts | when |
+| --- | --- | --- |
+| 1 | `econut-guard` | on battery, charge below `ECONUT_SHUTDOWN_BELOW` (55% by default), held for the debounce |
+| 2 | `upsmon` (`nut-monitor.service`) | the UPS itself reports low battery (`OB LB`), i.e. at the device's `battery.charge.low` |
+
+Tier 1 is the point of this project: shut down early, with plenty of charge left. Tier 2 exists for the case tier 1 cannot cover - the guard is dead, wedged, or blind (the `NOT PROTECTED` states above). On the Delta 3 Ultra Plus the device reports `battery.charge.low: 8`, far under the default level, so the guard normally acts long before upsmon does. Check your own unit with `upsc <ups>@localhost battery.charge.low`.
+
+The ordering only holds while the configured level is above that threshold. Set `--shutdown-below` at or under it and upsmon gets there first, making the level you set meaningless; the installer warns when it sees that.
+
+Two details worth knowing:
+
+- **Without `upsmon.conf` there is no tier 2 at all.** `nut.conf`'s `MODE=standalone` makes the distro run `upsmon`, but the packaged `upsmon.conf` has no `MONITOR` line, so `upsmon` exits immediately and `nut-monitor.service` sits in `failed`. Earlier versions of this installer left it that way.
+- **The `MONITOR` role is `secondary`, on purpose.** A `primary` upsmon creates `POWERDOWNFLAG` as it goes down, and NUT's system-shutdown hook then sends a power-off command to the UPS through the `APC HID` subdriver - which this unit is not. What that does to the EcoFlow's AC output, and whether the output comes back when mains does, is untested, and the machine being protected is on that output. A `secondary` shuts this host down and never sends the UPS anything. The installer also downgrades the `upsmon primary` role that earlier versions granted in `upsd.users`.
+
+To see what upsmon is doing: `journalctl -u nut-monitor -f`.
 
 ## Watching a mains event
 
