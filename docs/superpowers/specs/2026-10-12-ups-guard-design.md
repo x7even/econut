@@ -4,8 +4,8 @@ Date: 2026-10-12. Status: draft for user review.
 
 ## Purpose
 
-The rig `9970x` runs behind an inverter and an EcoFlow Delta 3 Ultra Plus. If mains
-fails and the EcoFlow battery drops below 55%, the rig must shut down cleanly.
+The machine runs behind an inverter and an EcoFlow Delta 3 Ultra Plus. If mains
+fails and the EcoFlow battery drops below 55%, the machine must shut down cleanly.
 `econut-guard` is a small Go daemon that makes that decision and, only when explicitly
 enabled, performs the shutdown.
 
@@ -15,7 +15,7 @@ APIs, controlling the EcoFlow.
 ## Success criteria
 
 - Reads battery state from NUT every few seconds.
-- Triggers once when the rig is on battery and charge is below 55% continuously for 120 s.
+- Triggers once when the machine is on battery and charge is below 55% continuously for 120 s.
 - **Live by default (superseded the original dry-run default).** `--dry-run` is an opt-in that logs instead of shutting down. The original design had `--enable-shutdown`, which no longer exists.
 - The policy is a pure function and fully unit-tested; no test can call `shutdown`.
 - A NUT outage never causes a spurious shutdown and is logged loudly.
