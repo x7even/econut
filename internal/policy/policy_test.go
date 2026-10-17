@@ -159,9 +159,9 @@ func TestStaleWhileOnBatteryStillReported(t *testing.T) {
 	s := append([]Sample{ob(80)}, repeat(bad, 80)...)
 	_, rs, _ := feed(cfg(), State{}, s, t0)
 	for i, r := range rs {
-		// Blindness is measured from the first unusable sample, which is
-		// sample 1 here, not from the last usable one.
-		blind := time.Duration(max(i-1, 0)) * step
+		// Blindness is measured from the last usable reading, which is
+		// sample 0 here, not from the first unusable sample.
+		blind := time.Duration(i) * step
 		if want := i > 0; r.Blind != want {
 			t.Fatalf("sample %d: Blind=%v want %v", i, r.Blind, want)
 		}
@@ -178,7 +178,7 @@ func TestBlindAfterMainsBecomesStale(t *testing.T) {
 	s := append([]Sample{ol(100)}, repeat(bad, 200)...)
 	_, rs, _ := feed(cfg(), State{}, s, t0)
 	for i, r := range rs {
-		blind := time.Duration(max(i-1, 0)) * step
+		blind := time.Duration(i) * step
 		if want := i > 0; r.Blind != want {
 			t.Fatalf("sample %d: Blind=%v want %v", i, r.Blind, want)
 		}
@@ -213,17 +213,83 @@ func TestBlindFromColdStartBecomesStale(t *testing.T) {
 	}
 }
 
-func TestBlindForAnchorsAtFirstUnusableSample(t *testing.T) {
+// TestBlindForAnchorsAtLastUsableReading pins the clock the escalation runs on.
+// Measuring from the first failed poll instead loses one poll interval, which
+// made StaleAfter mean a different interval here than it does for the debounce
+// bridge and left a band of repeating gaps in which the guard neither acted
+// nor complained.
+func TestBlindForAnchorsAtLastUsableReading(t *testing.T) {
 	const firstBad = 3
 	s := append(repeat(ol(100), firstBad), repeat(bad, 20)...)
 	_, rs, _ := feed(cfg(), State{}, s, t0)
 	for i, r := range rs {
 		want := time.Duration(0)
 		if i >= firstBad {
-			want = time.Duration(i-firstBad) * step
+			want = time.Duration(i-(firstBad-1)) * step
 		}
 		if r.BlindFor != want {
 			t.Fatalf("sample %d: BlindFor=%s want %s", i, r.BlindFor, want)
+		}
+	}
+}
+
+// TestGapIsReportedOnTheRecoveringSample covers the window BlindFor cannot
+// see: readings return before any single sample has been blind for longer than
+// StaleAfter, yet the gap itself was longer than StaleAfter and therefore
+// longer than the debounce would bridge.
+func TestGapIsReportedOnTheRecoveringSample(t *testing.T) {
+	c := cfg()
+	// 60 unusable samples: the last is blind for 300s, which is not more than
+	// StaleAfter, so nothing is ever Stale - but the gap end to end is 305s.
+	s := append(append([]Sample{ol(100)}, repeat(bad, 60)...), ol(100))
+	_, rs, _ := feed(c, State{}, s, t0)
+	for i, r := range rs[:len(rs)-1] {
+		if r.Stale {
+			t.Fatalf("sample %d: Stale=true, no single sample is blind for more than %s", i, c.StaleAfter)
+		}
+		if r.Gap != 0 {
+			t.Fatalf("sample %d: Gap=%s, only the recovering sample reports a gap", i, r.Gap)
+		}
+	}
+	last := rs[len(rs)-1]
+	if last.Gap != 61*step {
+		t.Fatalf("recovering sample: Gap=%s want %s", last.Gap, 61*step)
+	}
+	if last.Gap <= c.StaleAfter {
+		t.Fatalf("Gap=%s must exceed StaleAfter=%s for this fixture to mean anything", last.Gap, c.StaleAfter)
+	}
+	if last.Blind || last.BlindFor != 0 {
+		t.Fatalf("the recovering sample is not blind: %+v", last)
+	}
+}
+
+// TestEveryRepeatingGapIsEitherActedOnOrReported sweeps the gap length across
+// the StaleAfter boundary. A driver that flaps - one usable reading every N
+// polls - must either still shut the machine down (the gap is short enough for
+// the debounce to bridge) or report an incident. Neither happening is the
+// silent band this fixture exists to deny: with blindness measured from the
+// first failed poll and no Gap, N=61 did exactly that.
+func TestEveryRepeatingGapIsEitherActedOnOrReported(t *testing.T) {
+	c := cfg()
+	for n := 55; n <= 70; n++ {
+		var samples []Sample
+		for len(samples) < 2000 {
+			samples = append(samples, ob(20))
+			samples = append(samples, repeat(bad, n-1)...)
+		}
+		_, rs, _ := feed(c, State{}, samples, t0)
+		var acted, reported int
+		for _, r := range rs {
+			if r.Decision == Shutdown {
+				acted++
+			}
+			if r.Stale || r.Gap > c.StaleAfter {
+				reported++
+			}
+		}
+		if acted == 0 && reported == 0 {
+			t.Errorf("one usable on-battery reading every %d polls (gap %s): no shutdown and nothing reported",
+				n, time.Duration(n)*step)
 		}
 	}
 }
@@ -239,6 +305,9 @@ func TestRecoveryClearsBlindAndSecondEpisodeEscalates(t *testing.T) {
 	recovered := rs[81]
 	if recovered.Blind || recovered.BlindFor != 0 || !recovered.EverValid {
 		t.Fatalf("a usable reading must clear blindness: %+v", recovered)
+	}
+	if recovered.Gap != 81*step {
+		t.Fatalf("the recovering sample must report the whole gap, got %s want %s", recovered.Gap, 81*step)
 	}
 	if !rs[80].Stale {
 		t.Fatal("first blind run never reached Stale")
@@ -342,10 +411,14 @@ func oldStep(cfg Config, st oldState, s Sample, now time.Time) (oldState, Decisi
 	return st, NoAction
 }
 
-// TestDecisionPathUnchanged drives the old and new logic in lockstep over a
-// deterministic pseudo-random sequence of samples and clock steps, including
-// charges either side of the threshold and clock steps in both directions.
-// Decision, Held and Triggered must agree at every single step.
+// TestDecisionPathUnchanged drives the old and new logic in lockstep and
+// requires Decision, Held and Triggered to agree at every single step, so the
+// blindness work provably did not change when the machine powers off.
+//
+// The sample stream runs in regimes rather than being drawn independently per
+// step: reaching the trigger takes ~24 consecutive low on-battery samples, so
+// an i.i.d. stream never got there and this test compared only the NoAction
+// path. The counters at the end fail the test if it ever goes vacuous again.
 func TestDecisionPathUnchanged(t *testing.T) {
 	c := cfg()
 	rng := rand.New(rand.NewSource(1))
@@ -354,23 +427,64 @@ func TestDecisionPathUnchanged(t *testing.T) {
 		oldSt oldState
 	)
 	now := t0
+	var acted, triggeredSteps, heldAtDebounce, bridgeBoundary int
+
+	const (
+		outage = iota // on battery below the threshold, with the odd failed read
+		mains
+		nearThreshold // charges either side of 55
+		flapping
+		blind
+		regimes
+	)
+	regime, left := mains, 1
 	for i := 0; i < 20000; i++ {
-		var s Sample
-		switch rng.Intn(3) {
-		case 0:
-			s = Sample{} // invalid
-		case 1:
-			s = ob(50 + rng.Float64()*10) // straddles 55
-		default:
-			s = ol(50 + rng.Float64()*10)
+		if left == 0 {
+			regime, left = rng.Intn(regimes), 1+rng.Intn(60)
 		}
-		switch rng.Intn(10) {
+		left--
+
+		var s Sample
+		switch regime {
+		case outage:
+			s = ob(40 + rng.Float64()*14)
+			if rng.Intn(25) == 0 {
+				s = bad
+			}
+		case mains:
+			s = ol(60 + rng.Float64()*40)
+		case nearThreshold:
+			s = ob(54 + rng.Float64()*2)
+		case flapping:
+			if rng.Intn(2) == 0 {
+				s = ob(30)
+			} else {
+				s = ol(90)
+			}
+		default:
+			s = bad
+		}
+
+		switch rng.Intn(14) {
 		case 0:
 			now = now.Add(-time.Duration(rng.Intn(600)) * time.Second) // NTP step back
 		case 1:
 			now = now.Add(time.Duration(rng.Intn(4)) * time.Hour) // suspend/resume
+		case 2:
+			now = now.Add(c.StaleAfter) // exactly the longest gap the debounce bridges
+		case 3:
+			now = now.Add(c.StaleAfter + time.Second) // one second too long
+		case 4:
+			now = now.Add(c.Debounce)
 		default:
 			now = now.Add(step)
+		}
+
+		// Measured on the old state, before the step, so the coverage
+		// assertions describe what was really exercised.
+		condition := s.Valid && s.OnBattery && s.Charge < c.ShutdownBelow
+		if dt := now.Sub(oldSt.lastHeld); oldSt.prevHeld && condition && dt == c.StaleAfter {
+			bridgeBoundary++
 		}
 
 		var res Result
@@ -387,6 +501,30 @@ func TestDecisionPathUnchanged(t *testing.T) {
 		if newSt.Triggered != oldSt.Triggered {
 			t.Fatalf("step %d: Triggered %v, old logic said %v", i, newSt.Triggered, oldSt.Triggered)
 		}
+
+		if res.Decision == Shutdown {
+			acted++
+		}
+		if newSt.Triggered {
+			triggeredSteps++
+		}
+		if newSt.Held == c.Debounce {
+			heldAtDebounce++
+		}
+	}
+
+	// A lockstep comparison proves nothing about a branch it never enters.
+	if acted < 20 {
+		t.Errorf("only %d shutdown decisions: the walk barely reaches the branch it exists to compare", acted)
+	}
+	if triggeredSteps == 0 {
+		t.Error("Triggered was false at every step, so comparing it was a tautology")
+	}
+	if heldAtDebounce == 0 {
+		t.Errorf("Held never equalled the debounce exactly, so the >= boundary was never compared")
+	}
+	if bridgeBoundary == 0 {
+		t.Errorf("a gap of exactly StaleAfter never met the bridge, so its <= boundary was never compared")
 	}
 }
 

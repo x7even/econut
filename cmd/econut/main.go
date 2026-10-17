@@ -6,10 +6,17 @@
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
 //
-// Exit status: 0 protected, 1 guard not running or a failure, 2 usage error,
-// 3 running but blind or in an unknown mode, 4 dry-run. Only 0 means a low
-// battery will actually power the machine off, so an unattended job can gate
-// on "econut status || exit".
+// Exit status: 0 protected, 1 guard not running (or its snapshot unreadable,
+// stale or dated in the future), 2 usage error, 3 running but unprotected
+// through a fault - no usable reading, a ups.status that says neither OB nor
+// OL, a poweroff attempt that failed, or an unrecognised mode - and 4 dry-run.
+// 0 is the only code that means a low battery will actually power the machine
+// off, so an unattended job can gate on "econut status || exit".
+//
+// 0 says the guard is protecting the machine, not that the machine will stay
+// up: a guard that has already requested a shutdown is doing exactly its job
+// and still exits 0. "econut check" says so in its line, so a job that cares
+// reads the line (or the triggered field in --json) rather than only the code.
 //
 // Two long-standing quirks of --json are left as they are, since consumers
 // already handle both: a missing status file prints the plain-text NOT RUNNING

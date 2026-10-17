@@ -27,18 +27,22 @@ const (
 
 type Result struct {
 	Decision Decision
-	// Blind is true when this sample carried no usable reading, or when none
-	// has ever been usable. It is instantaneous: one failed read is enough.
-	// It never causes a shutdown.
+	// Blind is true when this sample carried no usable reading. It is
+	// instantaneous: one failed read is enough. It never causes a shutdown.
 	Blind bool
-	// BlindFor is how long readings have been unusable: since the last valid
-	// sample, or since the first sample this policy saw if none has ever been
-	// valid. Zero when this sample is valid.
+	// BlindFor is how long readings have been unusable, measured from the last
+	// usable reading - or, if none has ever been usable, from the first sample
+	// this policy saw. Zero when this sample is usable.
 	BlindFor time.Duration
 	// Stale is true when BlindFor exceeds StaleAfter: no usable reading for
 	// long enough to be an incident in its own right, whatever the last
 	// reading happened to say. A warning only; it never causes a shutdown.
 	Stale bool
+	// Gap is set on the usable sample that ends a run of unusable ones: how
+	// long readings were unusable, end to end. It is how a gap that is longer
+	// than StaleAfter but bridged by the next reading before any single sample
+	// is Stale still gets reported. Zero otherwise.
+	Gap time.Duration
 	// EverValid is false until this policy has consumed one valid sample.
 	EverValid bool
 }
@@ -55,7 +59,9 @@ type State struct {
 
 	prevHeld   bool      // the last valid sample met the condition
 	lastHeld   time.Time // when that sample was taken
-	blindSince time.Time // first sample of the current unusable run; zero when the last sample was valid
+	lastValid  time.Time // when the last usable sample was taken
+	blind      bool      // the last sample carried no usable reading
+	blindSince time.Time // start of the current unusable run: the last usable reading, or its own first sample
 	everValid  bool      // a valid sample has been consumed
 }
 
@@ -64,18 +70,34 @@ func Step(cfg Config, st State, s Sample, now time.Time) (State, Result) {
 	var res Result
 
 	// Blindness is tracked for every sample, before any decision branch, and
-	// is anchored on the first unusable sample rather than on a zero
-	// timestamp: a guard that starts against a dead driver must measure from
-	// its first poll. A backwards clock step re-anchors rather than producing
-	// a negative or saturated duration. (time.Now carries a monotonic
-	// reading, so this matters only to a wall-clock-only test clock.)
-	if s.Valid {
-		st.blindSince, st.everValid = time.Time{}, true
-	} else if st.blindSince.IsZero() || now.Before(st.blindSince) {
+	// is measured from the last usable reading, not from the first failed
+	// poll: how long the UPS has been out of sight must not depend on when the
+	// guard happened to poll next, and StaleAfter must mean the same interval
+	// here as it does for the debounce bridge below. With no usable reading
+	// ever - a guard started against a dead driver, which is also the state
+	// after any restart - there is nothing to measure from but the first
+	// sample. A backwards clock step re-anchors rather than producing a
+	// negative duration. (time.Now carries a monotonic reading, so that
+	// matters only to a wall-clock-only test clock.)
+	switch {
+	case s.Valid:
+		if st.blind {
+			if d := now.Sub(st.blindSince); d > 0 {
+				res.Gap = d
+			}
+		}
+		st.blind, st.everValid = false, true
+		st.lastValid, st.blindSince = now, time.Time{}
+	case !st.blind:
+		st.blind, st.blindSince = true, now
+		if st.everValid && st.lastValid.Before(now) {
+			st.blindSince = st.lastValid
+		}
+	case now.Before(st.blindSince):
 		st.blindSince = now
 	}
 	res.EverValid = st.everValid
-	if !st.blindSince.IsZero() {
+	if st.blind {
 		res.Blind = true
 		if d := now.Sub(st.blindSince); d > 0 {
 			res.BlindFor = d

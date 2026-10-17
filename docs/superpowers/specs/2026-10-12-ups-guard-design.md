@@ -66,10 +66,25 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
   data alone never triggers a shutdown.
 - **Blind** (no usable reading): reported from the first invalid sample, and escalated to an
   error once there has been no usable reading for `--stale-after` (default 300 s), measured
-  from the first unusable sample - whatever the last usable reading happened to say, and
-  whether or not one has ever existed. A guard restarted against a dead driver measures from
-  its first poll. `--stale-after` has two jobs: this threshold, and the longest gap the
-  debounce will bridge, so raising it also widens that gap.
+  **from the last usable reading** - whatever it happened to say, and whether or not one has
+  ever existed. A guard restarted against a dead driver has no last reading to measure from,
+  so it measures from its first poll. Measuring from the first *unusable* sample instead made
+  every escalation one poll late and `--stale-after` mean a different interval here than it
+  does for the debounce bridge, which left a gap of up to one poll that neither acted nor
+  reported. A gap that a reading bridges before any single poll was stale is reported once
+  when the reading returns, for the same reason: it is longer than the debounce will bridge.
+  `--stale-after` has two jobs: this threshold, and the longest gap the debounce will bridge,
+  so raising it also widens that gap.
+- **Unable to act** (the poweroff command failed): the guard retries on the next poll and
+  reports the failure until one succeeds. Telemetry is perfect in this state, so nothing else
+  would notice.
+- **Uninterpretable `ups.status`** (a successful read whose status carries neither `OB` nor
+  `OL`): the decision reads the `OB` token alone, so absence of `OB` is only evidence of mains
+  power when the status says something econut understands. Such a sample is reported, never
+  read as mains - and never promoted to an outage either, since acting on a reading nobody can
+  interpret would power the machine off on healthy mains. It stays `Valid` for the policy
+  (demoting it would corrupt the debounce timer with a reading that did arrive) and is a fault
+  in the verdict.
 
 **Non-goal: blindness never powers the machine off.** "If blind and the last reading was on
 battery, shut down to be safe" would power the machine off on a USB re-enumeration or a NUT
@@ -84,13 +99,17 @@ rows and the exit code cannot disagree. An unrecognised mode is a fault, not a s
 | state | headline | exit |
 | --- | --- | --- |
 | protected | `running, ARMED (will power the machine off)` | 0 |
-| not running | `NOT RUNNING (last update ... ago)` | 1 |
+| not running | `NOT RUNNING (last update ... ago)`, or `(the status file is dated ... in the future)` | 1 |
 | blind | `running, NOT PROTECTED (no usable UPS reading for ...)` | 3 |
+| action failed | `running, NOT PROTECTED (it asked the machine to power off and that failed: ...)` | 3 |
+| unknown status | `running, NOT PROTECTED (the UPS reports "...", which says neither OB nor OL ...)` | 3 |
 | unknown mode | `running, NOT PROTECTED (unknown mode ...)` | 3 |
 | dry-run | `running, dry-run (will NOT shut down)` | 4 |
 
-Usage errors exit 2. Only 0 means a low battery will actually power the machine off. Blindness
-gates with no grace period: a threshold on the verdict is what let a dead driver read as ARMED
+Usage errors exit 2. Every fault outranks a deliberate dry-run, so `--allow-dry-run` cannot
+launder one into a yes. Only 0 means a low battery will actually power the machine off; it does
+not promise the machine will stay up, since a guard that has already requested a shutdown is
+protecting the machine and exits 0. Blindness gates with no grace period: a threshold on the verdict is what let a dead driver read as ARMED
 for days, so the debounce lives on escalation, never on the verdict.
 
 Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,

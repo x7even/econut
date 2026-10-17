@@ -34,12 +34,15 @@ type Guard struct {
 	Report func(status.Snapshot) // called after every completed poll
 
 	st             policy.State
-	blindReads     int           // consecutive failed reads in the current run
-	blindFor       time.Duration // BlindFor at the last failed read, for the recovery line
-	blindWarned    bool          // a WARN has been emitted for this run
-	lastErrText    string        // error text of the last failed read in this run
-	escalated      bool          // the Stale ERROR has been emitted for this run
-	nextEscalation time.Time
+	blindReads     int       // consecutive failed reads in the current run
+	blindWarned    bool      // a WARN has been emitted for this run
+	lastErrText    string    // error text of the last failed read in this run
+	escalated      bool      // an ERROR has been emitted for this run
+	nextEscalation time.Time // when the next ERROR is due while still blind
+	windowEnds     time.Time // end of the current read-health logging window
+	windowLines    int       // health lines already emitted in that window
+	statusWarned   bool      // an uninterpretable ups.status has been warned about
+	shutdownErr    string    // why the last shutdown attempt failed; "" when none has
 	lastVars       map[string]string
 }
 
@@ -77,31 +80,71 @@ func (g *Guard) Tick(ctx context.Context) {
 
 	if res.Decision == policy.Shutdown {
 		reason := fmt.Sprintf("on battery, charge %.0f%% < %.0f%% for %s", r.Charge, g.Cfg.ShutdownBelow, g.Cfg.Debounce)
-		if err := g.Act.Shutdown(ctx, reason); err != nil {
-			g.Log.Error("shutdown action failed; will retry on next poll", "err", err)
+		if actErr := g.Act.Shutdown(ctx, reason); actErr != nil {
+			g.Log.Error("shutdown action failed; will retry on next poll", "err", actErr)
 			g.st.Triggered = false
+			// Published too: a machine whose poweroff keeps failing is not
+			// protected, however healthy its telemetry looks.
+			g.shutdownErr = actErr.Error()
+		} else {
+			g.shutdownErr = ""
 		}
+	} else if !res.Blind && !g.st.Triggered && g.st.Held == 0 {
+		// The trigger condition no longer holds, so nothing is being asked of
+		// the actuator: an earlier failure is history, not the state now.
+		g.shutdownErr = ""
 	}
 	g.report(now, r, err, res)
+}
+
+// maxHealthLinesPerWindow bounds how many read-health lines - failure warnings
+// and recovery notices - one StaleAfter window may contain. A per-error-text
+// limit is not enough on its own: a hung or remote upsd fails with a net
+// timeout whose text carries the ephemeral local port, so it differs on every
+// single poll, and a driver that flaps starts a fresh run every other poll.
+// The escalating ERROR below is limited separately and is never dropped here.
+const maxHealthLinesPerWindow = 3
+
+// healthLineDue reports whether another read-health line fits in the current
+// window, counting it when it does. The window deliberately survives a
+// recovery, so flapping cannot reopen the budget every other poll.
+func (g *Guard) healthLineDue(now time.Time) bool {
+	if g.windowEnds.IsZero() || !now.Before(g.windowEnds) {
+		g.windowEnds, g.windowLines = now.Add(g.Cfg.StaleAfter), 0
+	}
+	if g.windowLines >= maxHealthLinesPerWindow {
+		return false
+	}
+	g.windowLines++
+	return true
 }
 
 // logHealth records read failures, escalations and recovery at a bounded rate:
 // days of failed polls must not flood the journal, and silence must not hide
 // them either.
 func (g *Guard) logHealth(now time.Time, r nut.Reading, readErr error, res policy.Result) {
-	if readErr == nil {
-		if g.blindReads > 0 {
+	if !res.Blind {
+		switch {
+		// A gap that the next reading bridged before any single poll was
+		// Stale is still an incident: it is longer than the debounce will
+		// bridge, so an outage inside it would not have shut the machine
+		// down, and nothing else would ever report it.
+		case res.Gap > g.Cfg.StaleAfter && !g.escalated:
+			g.Log.Error("not protected: UPS readings were unusable for longer than stale-after",
+				"blind_for", res.Gap.Round(time.Second), "stale_after", g.Cfg.StaleAfter,
+				"failed_reads", g.blindReads)
+		case g.blindWarned && g.healthLineDue(now):
 			g.Log.Info("UPS reading recovered",
-				"blind_for", g.blindFor.Round(time.Second), "failed_reads", g.blindReads)
+				"blind_for", res.Gap.Round(time.Second), "failed_reads", g.blindReads)
 		}
-		g.blindReads, g.blindFor, g.blindWarned, g.lastErrText = 0, 0, false, ""
+		g.blindReads, g.blindWarned, g.lastErrText = 0, false, ""
 		g.escalated, g.nextEscalation = false, time.Time{}
+		g.logStatusHealth(now, r)
 		g.logChanges(r)
 		return
 	}
 	g.blindReads++
-	g.blindFor = res.BlindFor
-	if txt := readErr.Error(); !g.blindWarned || txt != g.lastErrText {
+	if txt := readErr.Error(); (!g.blindWarned || txt != g.lastErrText) && g.healthLineDue(now) {
 		g.Log.Warn("NUT read failed", "err", readErr,
 			"failed_reads", g.blindReads, "blind_for", res.BlindFor.Round(time.Second))
 		g.blindWarned, g.lastErrText = true, txt
@@ -109,11 +152,30 @@ func (g *Guard) logHealth(now time.Time, r nut.Reading, readErr error, res polic
 	// Edge-triggered on Stale going false->true, then once per window: a
 	// reading that has been unusable for this long is an incident whatever
 	// the last reading said, because nothing is watching the battery.
-	if res.Stale && (!g.escalated || !now.Before(g.nextEscalation)) {
+	if res.Stale && (g.nextEscalation.IsZero() || !now.Before(g.nextEscalation)) {
 		g.Log.Error("not protected: no usable UPS reading",
 			"blind_for", res.BlindFor.Round(time.Second), "stale_after", g.Cfg.StaleAfter,
 			"ever_valid", res.EverValid, "failed_reads", g.blindReads, "err", readErr)
 		g.escalated, g.nextEscalation = true, now.Add(g.Cfg.StaleAfter)
+	}
+}
+
+// logStatusHealth warns while a successful read carries a ups.status that does
+// not say which power source the UPS is on. econut decides on the "OB" token
+// alone, so such a reading cannot be interpreted at all and the machine is not
+// protected, even though the read itself worked.
+func (g *Guard) logStatusHealth(now time.Time, r nut.Reading) {
+	if status.StatusKnown(r.Status) {
+		if g.statusWarned {
+			g.Log.Info("ups.status is interpretable again", "ups_status", r.Status)
+			g.statusWarned = false
+		}
+		return
+	}
+	if !g.statusWarned && g.healthLineDue(now) {
+		g.Log.Error("not protected: ups.status says neither OB nor OL, so the power source is unknown",
+			"ups_status", r.Status, "battery_charge", r.Charge)
+		g.statusWarned = true
 	}
 }
 
@@ -187,9 +249,11 @@ func (g *Guard) report(now time.Time, r nut.Reading, readErr error, res policy.R
 		Triggered:     g.st.Triggered,
 		BlindSeconds:  res.BlindFor.Seconds(),
 		EverValid:     res.EverValid,
-		// Published so `econut status` can name the escalation threshold
-		// without being configured itself.
+		// Published so a reader can tell a guard that does not record the
+		// blind duration at all from one reporting zero, and so JSON
+		// consumers can see the escalation threshold they are watching.
 		StaleAfterSecs: g.Cfg.StaleAfter.Seconds(),
+		ShutdownFailed: g.shutdownErr,
 	}
 	if readErr != nil {
 		s.Error = readErr.Error()
