@@ -5,7 +5,14 @@
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
 //
-// Exit status: 0 ok / guard running, 1 guard not running or a failure, 2 usage error.
+// Exit status: 0 protected, 1 guard not running or a failure, 2 usage error,
+// 3 running but blind or in an unknown mode, 4 dry-run. Only 0 means a low
+// battery will actually power the machine off, so an unattended job can gate
+// on "econut status || exit".
+//
+// Two long-standing quirks of --json are left as they are, since consumers
+// already handle both: a missing status file prints the plain-text NOT RUNNING
+// line to stdout, and a stale snapshot pairs valid JSON with exit 1.
 package main
 
 import (
@@ -65,15 +72,19 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		return 1
 	}
 
+	p := s.Protection(now)
 	if *asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		enc.Encode(s)
+		// Embedded, so every existing key keeps its name and position and
+		// unmarshalling into a status.Snapshot still works.
+		enc.Encode(struct {
+			status.Snapshot
+			Protection string `json:"protection"`
+			ExitCode   int    `json:"exit_code"`
+		}{s, string(p), p.ExitCode()})
 	} else {
 		fmt.Fprint(out, status.RenderColor(s, now, useColor(out)))
 	}
-	if !s.Fresh(now) {
-		return 1
-	}
-	return 0
+	return p.ExitCode()
 }

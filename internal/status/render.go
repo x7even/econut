@@ -30,6 +30,14 @@ const (
 	cyan   = "\x1b[36m"
 )
 
+// blindPhrase names how long the guard has been unable to see the UPS.
+func blindPhrase(s Snapshot, blind time.Duration) string {
+	if !s.EverValid {
+		return fmt.Sprintf("no UPS reading since the guard started %s ago", blind)
+	}
+	return fmt.Sprintf("no usable UPS reading for %s", blind)
+}
+
 // Render formats a snapshot as the plain text `econut status` prints.
 func Render(s Snapshot, now time.Time) string { return RenderColor(s, now, false) }
 
@@ -45,23 +53,48 @@ func RenderColor(s Snapshot, now time.Time, color bool) string {
 	line := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	row := func(label, value string) { line("  %s %s", paint(dim, fmt.Sprintf("%-10s", label)), value) }
 
-	if !s.Fresh(now) {
+	// One judgement, computed once: the headline, the rows and the exit code
+	// must not be able to disagree about whether the machine is protected.
+	p := s.Protection(now)
+	if p == NotRunning {
 		line("%s econut-guard: %s (last update %s ago)", paint(red, "○"), paint(red+bold, "NOT RUNNING"),
 			now.Sub(s.Updated).Round(time.Second))
 		return b.String()
 	}
 
-	live := s.Mode == ModeLive
-	if live {
+	live := s.Mode == ModeLive // still needed by the Condition verbs
+	blind := time.Duration(s.BlindSeconds * float64(time.Second)).Round(time.Second)
+
+	switch p {
+	case Protected:
 		line("%s econut-guard: running, %s (will power the machine off)", paint(green, "●"), paint(yellow+bold, "ARMED"))
-	} else {
+	case DryRun:
 		line("%s econut-guard: running, %s (will NOT shut down)", paint(cyan, "●"), paint(cyan+bold, "dry-run"))
+	case Blind:
+		// Named as a fault, with neither "ARMED" nor any promise to act, so
+		// that a fragment of this line cannot reassure anyone.
+		also := ""
+		if s.Mode == ModeDryRun {
+			also = ", and it is in dry-run"
+		}
+		line("%s econut-guard: running, %s (%s; a low battery would not be noticed%s)",
+			paint(red, "●"), paint(red+bold, "NOT PROTECTED"), blindPhrase(s, blind), also)
+	default: // UnknownMode
+		line("%s econut-guard: running, %s (unknown mode %q; cannot tell whether it will shut the machine off)",
+			paint(red, "●"), paint(red+bold, "NOT PROTECTED"), s.Mode)
 	}
 	line("")
 
 	row("UPS", s.UPS)
 	if !s.Valid {
-		row("Power", paint(red, fmt.Sprintf("no reading (%s)", s.Error)))
+		what := fmt.Sprintf("no reading for %s", blind)
+		if !s.EverValid {
+			what = fmt.Sprintf("no reading since the guard started %s ago", blind)
+		}
+		row("Power", paint(red, fmt.Sprintf("%s (%s)", what, s.Error)))
+		// Always printed: when the reading is lost, saying nothing here is how
+		// the most alarming fact used to be expressed.
+		row("Battery", paint(dim, "unknown"))
 	} else {
 		if s.OnBattery {
 			row("Power", paint(yellow+bold, "on battery")+" ("+s.UPSStatus+")")
@@ -79,13 +112,19 @@ func RenderColor(s Snapshot, now time.Time, color bool) string {
 	}
 	row("Shutdown", fmt.Sprintf("when on battery and below %.0f%% for %s", s.ShutdownBelow, secs(s.DebounceSecs)))
 
+	// Validity is tested first: policy state frozen before the reading was
+	// lost must never be presented as the current condition.
 	switch {
+	case !s.Valid:
+		msg := "UNKNOWN - nothing is watching the battery"
+		if s.Triggered {
+			msg += " (a shutdown was requested before the reading was lost)"
+		}
+		row("Condition", paint(red, msg))
 	case s.Triggered && live:
 		row("Condition", paint(red+bold, "MET, shutdown requested"))
 	case s.Triggered:
 		row("Condition", paint(red, "MET, WOULD have shut down (dry-run)"))
-	case !s.Valid:
-		// No condition to report without a reading.
 	case s.OnBattery && s.Charge < s.ShutdownBelow:
 		verb := "would shut down"
 		if live {

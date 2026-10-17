@@ -38,6 +38,51 @@ type Snapshot struct {
 	StaleAfterSecs float64 `json:"stale_after_seconds"` // --stale-after: the escalation threshold
 }
 
+// Protection is what econut-guard can do for the machine right now. It is the
+// one judgement the status output, the exit codes and the JSON all derive
+// from, so they cannot disagree. Every unrecognised value resolves to an
+// unprotected one.
+type Protection string
+
+const (
+	NotRunning  Protection = "not-running"
+	Blind       Protection = "blind"
+	UnknownMode Protection = "unknown-mode"
+	DryRun      Protection = "dry-run"
+	Protected   Protection = "protected"
+)
+
+// Protection classifies a snapshot. Protected is the only value that means a
+// low battery will power the machine off.
+func (s Snapshot) Protection(now time.Time) Protection {
+	switch {
+	case !s.Fresh(now):
+		return NotRunning
+	case !s.Valid:
+		return Blind // a fault outranks a deliberate dry-run
+	case s.Mode == ModeDryRun:
+		return DryRun
+	case s.Mode != ModeLive:
+		return UnknownMode // an empty or garbled mode is a fault, not a safe default
+	default:
+		return Protected
+	}
+}
+
+// ExitCode is the status econut and econut check exit with for p.
+func (p Protection) ExitCode() int {
+	switch p {
+	case Protected:
+		return 0
+	case NotRunning:
+		return 1
+	case DryRun:
+		return 4
+	default: // Blind, UnknownMode, and any value this binary does not know
+		return 3
+	}
+}
+
 // Fresh reports whether the snapshot is recent enough to mean the guard is
 // still running: updated within three poll intervals of now.
 func (s Snapshot) Fresh(now time.Time) bool {

@@ -49,13 +49,13 @@ func TestRender(t *testing.T) {
 		{"real triggered", triggeredEnabled, now,
 			[]string{"shutdown requested"}, nil},
 		{"no reading", noRead, now,
-			[]string{"no reading", "connect refused"}, nil},
+			[]string{"no reading", "connect refused"}, []string{"ARMED"}},
 		{"guard gone quiet", base, base.Updated.Add(90 * time.Second),
 			[]string{"NOT RUNNING", "1m30s ago"}, []string{"Condition"}},
 	}
 	t.Run("layout", func(t *testing.T) {
 		got := Render(mains, now)
-		for _, w := range []string{"● econut-guard: running", "UPS        ecoflow@", "Power      on mains (OL CHRG)",
+		for _, w := range []string{"● econut-guard: running", "UPS        <ups>", "Power      on mains (OL CHRG)",
 			"Battery    ████████████████████ 99%", "Shutdown   when on battery and below 55% for 120s", "Condition  not met"} {
 			if !strings.Contains(got, w) {
 				t.Errorf("missing %q in:\n%s", w, got)
@@ -95,5 +95,110 @@ func TestRender(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRenderLiveBlindNeverSaysArmed is the field incident verbatim: the guard
+// was live and running, had not had a usable reading for days, and printed a
+// green dot and a bold ARMED the whole time.
+func TestRenderLiveBlindNeverSaysArmed(t *testing.T) {
+	s := sample()
+	s.Mode, s.Valid, s.Error = ModeLive, false, "nut: <ups> ups.status: DRIVER-NOT-CONNECTED"
+	s.BlindSeconds = 302400 // 84h
+	got := Render(s, s.Updated.Add(2*time.Second))
+	for _, w := range []string{"NOT PROTECTED", "no usable UPS reading", "84h0m0s",
+		"Battery    unknown", "Condition  UNKNOWN"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	for _, d := range []string{"ARMED", "will power the machine off", "will NOT"} {
+		if strings.Contains(got, d) {
+			t.Errorf("a guard that cannot see the UPS must not claim %q in:\n%s", d, got)
+		}
+	}
+}
+
+func TestRenderBlindNeverSeen(t *testing.T) {
+	s := sample()
+	s.Mode, s.Valid, s.Error = ModeLive, false, "nut: connect refused"
+	s.EverValid, s.BlindSeconds = false, 250
+	got := Render(s, s.Updated.Add(2*time.Second))
+	for _, w := range []string{"NOT PROTECTED", "since the guard started", "4m10s"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "no usable UPS reading for") {
+		t.Errorf("a guard that never read the UPS has no reading to date from:\n%s", got)
+	}
+}
+
+func TestRenderBlindDryRunNamesBoth(t *testing.T) {
+	s := sample() // dry-run
+	s.Valid, s.Error, s.BlindSeconds = false, "nut: connect refused", 600
+	got := Render(s, s.Updated.Add(2*time.Second))
+	for _, w := range []string{"NOT PROTECTED", "dry-run"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "ARMED") {
+		t.Errorf("unexpected ARMED in:\n%s", got)
+	}
+}
+
+// TestRenderTriggeredWhileBlind pins the switch reorder: policy state frozen
+// before the reading was lost is disclosed as history, never as the condition
+// now holding.
+func TestRenderTriggeredWhileBlind(t *testing.T) {
+	s := sample()
+	s.Mode, s.Valid, s.Error = ModeLive, false, "nut: connect refused"
+	s.Triggered, s.HeldSecs, s.BlindSeconds = true, 125, 600
+	got := Render(s, s.Updated.Add(2*time.Second))
+	for _, w := range []string{"Condition  UNKNOWN", "a shutdown was requested before"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	for _, d := range []string{"MET, shutdown requested", "125s"} {
+		if strings.Contains(got, d) {
+			t.Errorf("stale policy state presented as current: %q in:\n%s", d, got)
+		}
+	}
+}
+
+func TestRenderUnknownModeIsNotDryRun(t *testing.T) {
+	s := sample()
+	s.Mode = "bogus"
+	got := Render(s, s.Updated.Add(2*time.Second))
+	for _, w := range []string{"NOT PROTECTED", "unknown mode"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	for _, d := range []string{"will NOT shut down", "ARMED"} {
+		if strings.Contains(got, d) {
+			t.Errorf("unexpected %q in:\n%s", d, got)
+		}
+	}
+}
+
+// TestRenderAlwaysPrintsCondition: silence is how the most alarming fact used
+// to be expressed, so every running guard now reports a condition.
+func TestRenderAlwaysPrintsCondition(t *testing.T) {
+	base := sample()
+	now := base.Updated.Add(2 * time.Second)
+	for _, mode := range []string{ModeLive, ModeDryRun, "bogus"} {
+		for _, valid := range []bool{true, false} {
+			s := base
+			s.Mode, s.Valid = mode, valid
+			if !valid {
+				s.Error = "nut: connect refused"
+			}
+			if got := Render(s, now); !strings.Contains(got, "Condition") {
+				t.Errorf("mode=%q valid=%v: no Condition row in:\n%s", mode, valid, got)
+			}
+		}
 	}
 }
