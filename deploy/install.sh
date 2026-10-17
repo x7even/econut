@@ -93,8 +93,19 @@ for b in econut-guard econut; do
   [ -x "$ROOT/bin/$b" ] || die "$ROOT/bin/$b not found; build first (as your normal user):
     cd $ROOT && go build -o bin/ ./cmd/..."
 done
-[ -x /lib/nut/usbhid-ups ] || [ -x /usr/lib/nut/usbhid-ups ] ||
-  die "NUT is not installed; on Debian/Ubuntu: sudo apt install nut-server"
+# The driver directory moves between distributions and NUT versions
+# (/usr/libexec/nut since 2.8, /lib/nut and /usr/lib/nut before it), so look in
+# all of them rather than deciding NUT is missing because one path is absent.
+driver_found=0
+for d in /usr/libexec/nut /lib/nut /usr/lib/nut /usr/local/libexec/nut /usr/local/lib/nut; do
+  if [ -x "$d/usbhid-ups" ]; then
+    driver_found=1
+    say "found the NUT usbhid-ups driver in $d"
+    break
+  fi
+done
+[ "$driver_found" = 1 ] || command -v usbhid-ups >/dev/null ||
+  die "cannot find NUT's usbhid-ups driver; on Debian/Ubuntu: sudo apt install nut-server"
 getent group nut >/dev/null || die "group 'nut' missing; is the nut-server package installed?"
 
 remove_old_names
