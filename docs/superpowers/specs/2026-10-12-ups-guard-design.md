@@ -4,8 +4,8 @@ Date: 2026-10-12. Status: draft for user review.
 
 ## Purpose
 
-The rig `9970x` runs behind an inverter and an EcoFlow Delta 3 Ultra Plus. If mains
-fails and the EcoFlow battery drops below 55%, the rig must shut down cleanly.
+The machine runs behind an inverter and an EcoFlow Delta 3 Ultra Plus. If mains
+fails and the EcoFlow battery drops below 55%, the machine must shut down cleanly.
 `econut-guard` is a small Go daemon that makes that decision and, only when explicitly
 enabled, performs the shutdown.
 
@@ -15,7 +15,7 @@ APIs, controlling the EcoFlow.
 ## Success criteria
 
 - Reads battery state from NUT every few seconds.
-- Triggers once when the rig is on battery and charge is below 55% continuously for 120 s.
+- Triggers once when the machine is on battery and charge is below 55% continuously for 120 s.
 - **Live by default (superseded the original dry-run default).** `--dry-run` is an opt-in that logs instead of shutting down. The original design had `--enable-shutdown`, which no longer exists.
 - The policy is a pure function and fully unit-tested; no test can call `shutdown`.
 - A NUT outage never causes a spurious shutdown and is logged loudly.
@@ -62,12 +62,60 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
   timer is not reset; a warning is logged. If the valid samples on either side of a gap
   both meet the condition and the gap is no longer than `--stale-after`, the gap is
   credited to the timer (so intermittent NUT failures cannot stall the debounce); a
-  longer gap is not credited. `--poll` must satisfy `2*poll < stale-after`. If invalid for longer than `--stale-after`
-  (default 300 s) while the last valid sample was OnBattery, log an error. Invalid
+  longer gap is not credited. `--poll` must satisfy `2*poll < stale-after`. Invalid
   data alone never triggers a shutdown.
+- **Blind** (no usable reading): reported from the first invalid sample, and escalated to an
+  error once there has been no usable reading for `--stale-after` (default 300 s), measured
+  **from the last usable reading** - whatever it happened to say, and whether or not one has
+  ever existed. A guard restarted against a dead driver has no last reading to measure from,
+  so it measures from its first poll. Measuring from the first *unusable* sample instead made
+  every escalation one poll late and `--stale-after` mean a different interval here than it
+  does for the debounce bridge, which left a gap of up to one poll that neither acted nor
+  reported. A gap that a reading bridges before any single poll was stale is reported once
+  when the reading returns, for the same reason: it is longer than the debounce will bridge.
+  `--stale-after` has two jobs: this threshold, and the longest gap the debounce will bridge,
+  so raising it also widens that gap.
+- **Unable to act** (the poweroff command failed): the guard retries on the next poll and
+  reports the failure until one succeeds. Telemetry is perfect in this state, so nothing else
+  would notice.
+- **Uninterpretable `ups.status`** (a successful read whose status carries neither `OB` nor
+  `OL`): the decision reads the `OB` token alone, so absence of `OB` is only evidence of mains
+  power when the status says something econut understands. Such a sample is reported, never
+  read as mains - and never promoted to an outage either, since acting on a reading nobody can
+  interpret would power the machine off on healthy mains. It stays `Valid` for the policy
+  (demoting it would corrupt the debounce timer with a reading that did arrive) and is a fault
+  in the verdict.
+
+**Non-goal: blindness never powers the machine off.** "If blind and the last reading was on
+battery, shut down to be safe" would power the machine off on a USB re-enumeration or a NUT
+restart while mains is perfectly healthy. Losing sight of the UPS is reported and nothing
+more.
+
+### Protection states
+
+`econut status` and `econut check` derive one verdict from the snapshot, so the headline, the
+rows and the exit code cannot disagree. An unrecognised mode is a fault, not a safe default.
+
+| state | headline | exit |
+| --- | --- | --- |
+| protected | `running, ARMED (will power the machine off)` | 0 |
+| not running | `NOT RUNNING (last update ... ago)`, or `(the status file is dated ... in the future)` | 1 |
+| blind | `running, NOT PROTECTED (no usable UPS reading for ...)` | 3 |
+| action failed | `running, NOT PROTECTED (it asked the machine to power off and that failed: ...)` | 3 |
+| unknown status | `running, NOT PROTECTED (the UPS reports "...", which says neither OB nor OL ...)` | 3 |
+| unknown mode | `running, NOT PROTECTED (unknown mode ...)` | 3 |
+| dry-run | `running, dry-run (will NOT shut down)` | 4 |
+
+Usage errors exit 2. Every fault outranks a deliberate dry-run, so `--allow-dry-run` cannot
+launder one into a yes. Only 0 means a low battery will actually power the machine off; it does
+not promise the machine will stay up, since a guard that has already requested a shutdown is
+protecting the machine and exits 0. Blindness gates with no grace period: a threshold on the verdict is what let a dead driver read as ARMED
+for days, so the debounce lives on escalation, never on the verdict.
 
 Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
-`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`. Also
+`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s` (escalate when there has
+been no usable NUT reading for this long, whatever the last reading said; also the longest gap
+the debounce will bridge). Also
 `--dry-run` (log instead of shutting down), `--status-file` and `--once` (diagnostic: read once, print, exit).
 
 ### Actuator
@@ -97,4 +145,7 @@ Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
 
 - NUT's tolerance of the truncated descriptor was tested only on mains.
 - `OB` mapping under the APC subdriver is assumed, not observed.
+- NUT may bind a generic best-fit HID subdriver whose name does not match the hardware, so
+  `LB` and `battery.charge.low` behaviour must be verified per unit with `upsc` rather than
+  assumed. The decision therefore reads only the `OB` token and `battery.charge`.
 - Both are covered by the planned real-outage check before enabling shutdown.
