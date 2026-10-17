@@ -30,12 +30,19 @@ const (
 	cyan   = "\x1b[36m"
 )
 
-// blindPhrase names how long the guard has been unable to see the UPS.
-func blindPhrase(s Snapshot, blind time.Duration) string {
+// BlindPhrase names how long the guard has been unable to see the UPS. Both
+// the status output and econut check word it the same way.
+func (s Snapshot) BlindPhrase() string {
+	blind := s.blindFor()
 	if !s.EverValid {
 		return fmt.Sprintf("no UPS reading since the guard started %s ago", blind)
 	}
 	return fmt.Sprintf("no usable UPS reading for %s", blind)
+}
+
+// blindFor is BlindSeconds as a whole-second duration.
+func (s Snapshot) blindFor() time.Duration {
+	return time.Duration(s.BlindSeconds * float64(time.Second)).Round(time.Second)
 }
 
 // Render formats a snapshot as the plain text `econut status` prints.
@@ -63,7 +70,7 @@ func RenderColor(s Snapshot, now time.Time, color bool) string {
 	}
 
 	live := s.Mode == ModeLive // still needed by the Condition verbs
-	blind := time.Duration(s.BlindSeconds * float64(time.Second)).Round(time.Second)
+	blind := s.blindFor()
 
 	switch p {
 	case Protected:
@@ -78,7 +85,7 @@ func RenderColor(s Snapshot, now time.Time, color bool) string {
 			also = ", and it is in dry-run"
 		}
 		line("%s econut-guard: running, %s (%s; a low battery would not be noticed%s)",
-			paint(red, "●"), paint(red+bold, "NOT PROTECTED"), blindPhrase(s, blind), also)
+			paint(red, "●"), paint(red+bold, "NOT PROTECTED"), s.BlindPhrase(), also)
 	default: // UnknownMode
 		line("%s econut-guard: running, %s (unknown mode %q; cannot tell whether it will shut the machine off)",
 			paint(red, "●"), paint(red+bold, "NOT PROTECTED"), s.Mode)

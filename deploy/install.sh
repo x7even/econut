@@ -169,7 +169,7 @@ fi
 if [ "$ENABLE" = 1 ]; then
   run systemctl enable econut-guard.service
   run systemctl restart econut-guard.service # enable --now would leave an already-running old process
-  say "econut-guard enabled and ARMED (will power the machine off)"
+  say "econut-guard enabled; confirm it can see the UPS with: econut check"
 elif [ "$DRY" = 0 ] && systemctl is-active --quiet econut-guard.service; then
   run systemctl restart econut-guard.service # pick up a new binary or level
   say "restarted the running econut-guard"
@@ -196,5 +196,6 @@ cat <<EOF
 
 Done. When running, econut-guard WILL power the machine off if the condition is met.
 Check on it any time with:  econut status
+Confirm it is actually protecting the machine:  econut check
 Watch what the UPS reports (every value change is logged):  journalctl -u econut-guard -f
 EOF

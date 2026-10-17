@@ -52,7 +52,67 @@ $ econut status
 
 Colours appear on a terminal; they are off when piped, with `NO_COLOR` set, or `TERM=dumb`.
 
-`econut status --json` prints the raw snapshot. The exit status is 0 when the guard is running and 1 when it isn't, so it works in scripts.
+A guard that is running is not necessarily protecting the machine. When the UPS link or the NUT driver dies, every reading becomes unusable and a low battery would go unnoticed:
+
+```
+$ econut status
+● econut-guard: running, NOT PROTECTED (no usable UPS reading for 84h0m0s; a low battery would not be noticed)
+
+  UPS        <ups>
+  Power      no reading for 84h0m0s (nut: <ups> ups.status: DRIVER-NOT-CONNECTED)
+  Battery    unknown
+  Shutdown   when on battery and below 55% for 120s
+  Condition  UNKNOWN - nothing is watching the battery
+```
+
+`econut status --json` prints the raw snapshot, plus `protection` and `exit_code`. Both commands exit with the verdict:
+
+| code | meaning |
+| --- | --- |
+| 0 | protected: running, live, last reading usable. The only zero exit. |
+| 1 | not running: no status file, unreadable, unparsable, or not fresh. |
+| 2 | usage error. |
+| 3 | running but unprotected through a fault: no usable reading, or an unrecognised mode. |
+| 4 | running and reading the UPS, but in dry-run: unprotected by configuration. |
+
+Codes 0, 1 and 2 keep the meanings they have always had, so `econut status || true` and `-eq 1` checks are unaffected. A blind or dry-run guard, which used to exit 0, now exits 3 or 4.
+
+### Gating a long job
+
+```sh
+econut check || exit 1            # refuse to start unless the machine is protected
+econut check --max-age 30s        # also require a snapshot newer than 30 s
+```
+
+`econut check` prints one line and exits with the same code as `econut status`; `--quiet` suppresses the line, and `--allow-dry-run` accepts a dry-run guard that can still see the UPS. There is no grace period: one failed read is enough to report NOT PROTECTED, which fails in the safe direction.
+
+### Being told about it
+
+To be notified rather than only accrue journal lines, run the check on a timer and hang a handler off it:
+
+```ini
+# /etc/systemd/system/econut-check.service
+[Unit]
+OnFailure=econut-unprotected.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/econut check
+
+# /etc/systemd/system/econut-check.timer
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+```
+
+Then `sudo systemctl daemon-reload && sudo systemctl enable --now econut-check.timer`.
+
+`econut-unprotected.service` is yours to write: send mail, post to a webhook, light an LED. The guard itself never execs anything on your behalf, so nothing can block or delay a shutdown decision.
+
+Note that `--stale-after` sets both the escalation threshold and the longest gap the debounce will bridge, so raising it to quiet the errors also widens the gap the guard will treat as continuous.
 
 ## The shutdown is live
 

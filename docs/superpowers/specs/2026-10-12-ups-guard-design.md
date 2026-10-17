@@ -62,12 +62,41 @@ Sample = {OnBattery bool, Charge float, Valid bool}. `OnBattery` is true when
   timer is not reset; a warning is logged. If the valid samples on either side of a gap
   both meet the condition and the gap is no longer than `--stale-after`, the gap is
   credited to the timer (so intermittent NUT failures cannot stall the debounce); a
-  longer gap is not credited. `--poll` must satisfy `2*poll < stale-after`. If invalid for longer than `--stale-after`
-  (default 300 s) while the last valid sample was OnBattery, log an error. Invalid
+  longer gap is not credited. `--poll` must satisfy `2*poll < stale-after`. Invalid
   data alone never triggers a shutdown.
+- **Blind** (no usable reading): reported from the first invalid sample, and escalated to an
+  error once there has been no usable reading for `--stale-after` (default 300 s), measured
+  from the first unusable sample - whatever the last usable reading happened to say, and
+  whether or not one has ever existed. A guard restarted against a dead driver measures from
+  its first poll. `--stale-after` has two jobs: this threshold, and the longest gap the
+  debounce will bridge, so raising it also widens that gap.
+
+**Non-goal: blindness never powers the machine off.** "If blind and the last reading was on
+battery, shut down to be safe" would power the machine off on a USB re-enumeration or a NUT
+restart while mains is perfectly healthy. Losing sight of the UPS is reported and nothing
+more.
+
+### Protection states
+
+`econut status` and `econut check` derive one verdict from the snapshot, so the headline, the
+rows and the exit code cannot disagree. An unrecognised mode is a fault, not a safe default.
+
+| state | headline | exit |
+| --- | --- | --- |
+| protected | `running, ARMED (will power the machine off)` | 0 |
+| not running | `NOT RUNNING (last update ... ago)` | 1 |
+| blind | `running, NOT PROTECTED (no usable UPS reading for ...)` | 3 |
+| unknown mode | `running, NOT PROTECTED (unknown mode ...)` | 3 |
+| dry-run | `running, dry-run (will NOT shut down)` | 4 |
+
+Usage errors exit 2. Only 0 means a low battery will actually power the machine off. Blindness
+gates with no grace period: a threshold on the verdict is what let a dead driver read as ARMED
+for days, so the debounce lives on escalation, never on the verdict.
 
 Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
-`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s`. Also
+`--poll 5s`, `--ups ecoflow@127.0.0.1:3493`, `--stale-after 300s` (escalate when there has
+been no usable NUT reading for this long, whatever the last reading said; also the longest gap
+the debounce will bridge). Also
 `--dry-run` (log instead of shutting down), `--status-file` and `--once` (diagnostic: read once, print, exit).
 
 ### Actuator
@@ -97,4 +126,7 @@ Defaults, all flags: `--shutdown-below 55`, `--debounce 120s`,
 
 - NUT's tolerance of the truncated descriptor was tested only on mains.
 - `OB` mapping under the APC subdriver is assumed, not observed.
+- NUT may bind a generic best-fit HID subdriver whose name does not match the hardware, so
+  `LB` and `battery.charge.low` behaviour must be verified per unit with `upsc` rather than
+  assumed. The decision therefore reads only the `OB` token and `battery.charge`.
 - Both are covered by the planned real-outage check before enabling shutdown.

@@ -105,11 +105,12 @@ func main() {
 	}
 
 	var (
-		target     = flag.String("ups", "ecoflow@127.0.0.1:3493", "NUT UPS as name@host[:port]")
-		trigger    = flag.Float64("shutdown-below", defTrigger, "shut down when on battery and charge is below this percent (env ECONUT_SHUTDOWN_BELOW)")
-		debounce   = flag.Duration("debounce", defDebounce, "condition must hold this long before acting (env ECONUT_DEBOUNCE)")
-		poll       = flag.Duration("poll", 5*time.Second, "poll interval")
-		stale      = flag.Duration("stale-after", 300*time.Second, "log an error if NUT data is invalid this long while on battery")
+		target   = flag.String("ups", "ecoflow@127.0.0.1:3493", "NUT UPS as name@host[:port]")
+		trigger  = flag.Float64("shutdown-below", defTrigger, "shut down when on battery and charge is below this percent (env ECONUT_SHUTDOWN_BELOW)")
+		debounce = flag.Duration("debounce", defDebounce, "condition must hold this long before acting (env ECONUT_DEBOUNCE)")
+		poll     = flag.Duration("poll", 5*time.Second, "poll interval")
+		stale    = flag.Duration("stale-after", 300*time.Second,
+			"escalate if there has been no usable NUT reading for this long, whatever the last reading said; also the longest gap the debounce will bridge")
 		dryRun     = flag.Bool("dry-run", false, "only log what would happen; never power the machine off (for testing)")
 		once       = flag.Bool("once", false, "read the UPS once, print the reading and exit (diagnostic)")
 		statusFile = flag.String("status-file", status.DefaultPath, "write a status snapshot here for the econut command (empty disables)")

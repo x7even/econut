@@ -2,6 +2,7 @@
 // battery level is, and how close it is to shutting the machine down.
 //
 //	econut [status] [--json] [--file PATH]
+//	econut check [--max-age DURATION] [--allow-dry-run] [--quiet] [--file PATH]
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
 //
@@ -47,6 +48,9 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	if len(args) > 0 && args[0] == "set" {
 		return runSet(args[1:], out, errOut)
 	}
+	if len(args) > 0 && args[0] == "check" {
+		return runCheck(args[1:], out, errOut, now)
+	}
 	if len(args) > 0 && args[0] == "status" {
 		args = args[1:]
 	}
@@ -58,7 +62,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status] [--json] [--file PATH])\n", fs.Arg(0))
+		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status|check|set|install] ...)\n", fs.Arg(0))
 		return 2
 	}
 
