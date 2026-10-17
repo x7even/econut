@@ -2,10 +2,25 @@
 // battery level is, and how close it is to shutting the machine down.
 //
 //	econut [status] [--json] [--file PATH]
+//	econut check [--max-age DURATION] [--allow-dry-run] [--quiet] [--file PATH]
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
 //
-// Exit status: 0 ok / guard running, 1 guard not running or a failure, 2 usage error.
+// Exit status: 0 protected, 1 guard not running (or its snapshot unreadable,
+// stale or dated in the future), 2 usage error, 3 running but unprotected
+// through a fault - no usable reading, a ups.status that says neither OB nor
+// OL, a poweroff attempt that failed, or an unrecognised mode - and 4 dry-run.
+// 0 is the only code that means a low battery will actually power the machine
+// off, so an unattended job can gate on "econut status || exit".
+//
+// 0 says the guard is protecting the machine, not that the machine will stay
+// up: a guard that has already requested a shutdown is doing exactly its job
+// and still exits 0. "econut check" says so in its line, so a job that cares
+// reads the line (or the triggered field in --json) rather than only the code.
+//
+// Two long-standing quirks of --json are left as they are, since consumers
+// already handle both: a missing status file prints the plain-text NOT RUNNING
+// line to stdout, and a stale snapshot pairs valid JSON with exit 1.
 package main
 
 import (
@@ -40,6 +55,9 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	if len(args) > 0 && args[0] == "set" {
 		return runSet(args[1:], out, errOut)
 	}
+	if len(args) > 0 && args[0] == "check" {
+		return runCheck(args[1:], out, errOut, now)
+	}
 	if len(args) > 0 && args[0] == "status" {
 		args = args[1:]
 	}
@@ -51,7 +69,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status] [--json] [--file PATH])\n", fs.Arg(0))
+		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status|check|set|install] ...)\n", fs.Arg(0))
 		return 2
 	}
 
@@ -65,15 +83,19 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		return 1
 	}
 
+	p := s.Protection(now)
 	if *asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		enc.Encode(s)
+		// Embedded, so every existing key keeps its name and position and
+		// unmarshalling into a status.Snapshot still works.
+		enc.Encode(struct {
+			status.Snapshot
+			Protection string `json:"protection"`
+			ExitCode   int    `json:"exit_code"`
+		}{s, string(p), p.ExitCode()})
 	} else {
 		fmt.Fprint(out, status.RenderColor(s, now, useColor(out)))
 	}
-	if !s.Fresh(now) {
-		return 1
-	}
-	return 0
+	return p.ExitCode()
 }

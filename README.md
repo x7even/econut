@@ -77,6 +77,68 @@ UPS values changed  ups.status="OB DISCHRG -> OL DISCHRG"
 UPS values changed  ups.status="OL DISCHRG -> OL CHRG"
 ```
 
+## When it cannot see the UPS
+
+A guard that is running is not necessarily protecting the machine. If the USB link or the NUT
+driver dies, every reading becomes unusable and a low battery would go unnoticed, so `econut
+status` says so plainly:
+
+```
+● econut-guard: running, NOT PROTECTED (no usable UPS reading for 84h0m0s; a low battery would not be noticed)
+
+  UPS        <ups>
+  Power      no reading for 84h0m0s (nut: <ups> ups.status: DRIVER-NOT-CONNECTED)
+  Battery    unknown
+  Shutdown   when on battery and below 55% for 120s
+  Condition  UNKNOWN - nothing is watching the battery
+```
+
+The guard also logs a warning on the first failed read and escalates to an error once there
+has been no usable reading for `--stale-after` (default 300 s), repeating once per interval
+until a reading comes back. Blindness is measured from the last usable reading, not from the
+first failed poll. A run of failures that a reading bridges before any single poll crossed
+`--stale-after` is still reported when the reading returns, because a gap longer than
+`--debounce` is longer than the debounce can bridge: an outage inside it would not have
+powered the machine off.
+
+Two more faults read as "running fine" if nobody checks for them, so they are part of the
+verdict as well:
+
+- **The poweroff did not work.** The guard asked the machine to shut down and the command
+  failed. It retries on the next poll, and until one succeeds the status says
+  `NOT PROTECTED (it asked the machine to power off and that failed: ...)` with a
+  `last poweroff attempt FAILED` row. Telemetry can look perfect in this state.
+- **`ups.status` cannot be interpreted.** econut decides on the `OB` token alone, so a status
+  carrying neither `OB` nor `OL` - a best-fit subdriver that signals discharge some other
+  way, or reports nothing at all - says nothing about the power source. Reading the missing
+  `OB` as mains would be silent and wrong, and acting on it would power the machine off on
+  healthy mains, so it is reported instead: `Power  unknown ("DISCHRG")`.
+
+`econut status` exits with the verdict, so a script can act on it:
+
+| code | meaning |
+| --- | --- |
+| 0 | protected: running, live, last reading usable. The only zero exit. |
+| 1 | not running: no status file, unreadable, not fresh, or dated in the future. |
+| 2 | usage error. |
+| 3 | running but unprotected through a fault: no usable reading, a `ups.status` that says neither `OB` nor `OL`, a poweroff attempt that failed, or an unrecognised mode. |
+| 4 | running and reading the UPS, but in dry-run: unprotected by configuration. |
+
+For an unattended job, `econut check` is the one-line preflight:
+
+```sh
+econut check || exit 1            # refuse to start unless the machine is protected
+econut check --max-age 10s        # also require a snapshot newer than 10 s
+econut check --allow-dry-run      # accept a dry-run guard that can see the UPS
+econut check --quiet              # exit code only
+```
+
+It reports the same verdict as `econut status`, from the same snapshot, and exits with the
+same code - with the two differences it exists for: `--allow-dry-run` turns exit 4 into exit
+0, and `--max-age` can turn any other verdict into exit 1. A `--max-age` longer than the
+guard's own freshness window (three poll intervals) changes nothing, since it can only ever
+make the answer stricter.
+
 ## Change the settings
 
 ```sh
@@ -99,8 +161,23 @@ it again.
 
 - `econut status` says NOT RUNNING: `systemctl status econut-guard` and
   `journalctl -u econut-guard -n 50`.
-- No reading from the UPS: `upsc ecoflow@localhost` should list values; if it does not, check
+- `econut status` says NOT PROTECTED: the headline names which fault it is. Most often the
+  guard is alive but cannot read the UPS; `journalctl -u econut-guard -n 50` has the driver's
+  own error, and `upsc <ups>` shows whether NUT can read it at all. Until this clears,
+  nothing will shut the machine down.
+- NOT PROTECTED with `last poweroff attempt FAILED`: the UPS is fine and the shutdown command
+  is not. The journal line `shutdown action failed` has the error; the guard runs
+  `systemctl poweroff`, so check that it is running as root and that the command works when
+  run by hand.
+- NOT PROTECTED with `Power  unknown`: the read worked but `ups.status` says neither `OB` nor
+  `OL`. `upsc <ups> ups.status` shows what the driver reports; a unit that signals discharge
+  only through some other variable cannot be used by econut as it stands.
+- No reading from the UPS: `upsc <ups>` should list values; if it does not, check
   `systemctl status nut-server nut-driver@ecoflow` and that the cable is in the USB-A port.
+- NUT may bind a generic best-fit HID subdriver whose name does not match the hardware, so
+  `ups.status` and `battery.charge` behaviour must be verified per unit with `upsc <ups>`
+  rather than assumed. econut's decision reads only the `OB` token and `battery.charge`,
+  never `LB` or `battery.charge.low`.
 - Colours off: set `NO_COLOR=1`, or pipe the output.
 
 More detail is in [deploy/README.md](deploy/README.md); design notes are in `docs/`.
