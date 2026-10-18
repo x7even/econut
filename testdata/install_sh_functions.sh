@@ -8,6 +8,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 sed -n '/^monitor_password()/,/^}/p' "$SH" >"$TMP/fns.sh"
 sed -n '/^fill_placeholder()/,/^}/p' "$SH" >>"$TMP/fns.sh"
+sed -n '/^has_primary_role()/,/^}/p' "$SH" >>"$TMP/fns.sh"
+sed -n '/^downgrade_primary_role()/,/^}/p' "$SH" >>"$TMP/fns.sh"
 grep -c . "$TMP/fns.sh" >/dev/null || { echo "FAIL: could not extract functions"; exit 1; }
 # shellcheck source=/dev/null
 . "$TMP/fns.sh"
@@ -82,5 +84,44 @@ line=$(printf '%s\n' "$rendered" | grep '^MONITOR ')
   ok "MONITOR line is correct and secondary" || bad "MONITOR line" "got '$line'"
 printf '%s\n' "$rendered" | grep -q 'CHANGE-ME-before-installing' &&
   bad "placeholder left behind" "still present" || ok "no placeholder left"
+
+# 7. the 'upsmon primary' migration. It only ever runs as root against
+# /etc/nut/upsd.users, so this is the only place it gets exercised: the role
+# must flip and the password line must survive byte for byte.
+migrate_case() {
+  local name=$1 body=$2 expect=$3
+  printf '%s' "$body" >"$TMP/m"
+  local before after
+  before=$(sed -n '/password/p' "$TMP/m")
+  if has_primary_role "$TMP/m"; then
+    downgrade_primary_role "$TMP/m"
+    [ "$expect" = yes ] || { bad "$name" "matched when it should not"; return; }
+  else
+    [ "$expect" = no ] || { bad "$name" "did not match"; return; }
+    ok "$name"
+    return
+  fi
+  grep -q 'upsmon primary' "$TMP/m" && { bad "$name" "primary survived"; return; }
+  grep -q 'upsmon secondary' "$TMP/m" || { bad "$name" "secondary not written"; return; }
+  after=$(sed -n '/password/p' "$TMP/m")
+  [ "$before" = "$after" ] || { bad "$name" "password line changed: '$before' -> '$after'"; return; }
+  ok "$name"
+}
+
+migrate_case "space-indented primary is downgraded" \
+  '[monitor]
+  password = a&b/c$d"e
+  upsmon primary
+' yes
+migrate_case "tab-indented primary is downgraded" \
+  '[monitor]
+	password = Tabbed1
+	upsmon primary
+' yes
+migrate_case "already secondary is left alone" \
+  '[monitor]
+  password = Secret123
+  upsmon secondary
+' no
 
 [ "$fails" = 0 ] && { echo "ALL PASS"; exit 0; } || { echo "$fails FAILED"; exit 1; }

@@ -12,7 +12,7 @@
 # The installed service is LIVE: once running it powers the machine off when the
 # condition is met (on battery and below the level for the debounce period).
 # NUT's own upsmon is configured as a last-resort backstop below that level,
-# for the case where econut-guard is dead or cannot read the UPS.
+# for the case where the econut-guard process is gone while NUT still works.
 # Re-running is fine: unchanged files are left alone, changed ones are backed up.
 set -euo pipefail
 
@@ -81,6 +81,18 @@ monitor_password() {
 
 # fill_placeholder SRC PW -- SRC with the password placeholder replaced, by
 # literal substring so nothing in the password is read as a metacharacter.
+# has_primary_role FILE / downgrade_primary_role FILE -- the 'upsmon primary'
+# grant that earlier versions wrote into upsd.users. These only ever run against
+# a root-owned file, so they are functions purely to make them testable; the
+# password line must survive byte for byte.
+has_primary_role() {
+  grep -q '^[[:space:]]*upsmon[[:space:]]\+primary[[:space:]]*$' "$1"
+}
+
+downgrade_primary_role() {
+  sed -i 's/^\([[:space:]]*\)upsmon[[:space:]]\+primary[[:space:]]*$/\1upsmon secondary/' "$1"
+}
+
 fill_placeholder() {
   # The password goes through the environment, not -v: awk expands backslash
   # escapes in a -v assignment, which would corrupt a password containing one.
@@ -168,6 +180,9 @@ say "udev rule (lets group nut open the EcoFlow USB device)"
 if install_file "$HERE/99-ecoflow-ups.rules" /etc/udev/rules.d/99-ecoflow-ups.rules 0644; then
   run udevadm control --reload
   run udevadm trigger --subsystem-match=usb --attr-match=idVendor=3746
+  # The usb trigger does not re-run rules for the serial child device, so the
+  # ModemManager tag would not land on the tty node until a replug or a reboot.
+  run udevadm trigger --action=change --subsystem-match=tty
 fi
 
 # ---- 2. NUT config ----------------------------------------------------------
@@ -184,9 +199,9 @@ if [ -f /etc/nut/upsd.users ] && grep -q '^\[monitor\]' /etc/nut/upsd.users 2>/d
   # Earlier versions granted the monitor user the 'primary' upsmon role, which
   # authorises the POWERDOWNFLAG path described in upsmon.conf. econut never
   # wants it, so take it away from installs that already have it.
-  if grep -q '^[[:space:]]*upsmon[[:space:]]\+primary[[:space:]]*$' /etc/nut/upsd.users; then
+  if has_primary_role /etc/nut/upsd.users; then
     run cp -p /etc/nut/upsd.users "/etc/nut/upsd.users.bak.$STAMP"
-    run sed -i 's/^\([[:space:]]*\)upsmon[[:space:]]\+primary[[:space:]]*$/\1upsmon secondary/' /etc/nut/upsd.users
+    run downgrade_primary_role /etc/nut/upsd.users
     say "downgraded the monitor user from upsmon primary to secondary in /etc/nut/upsd.users"
     changed=1
   else
@@ -223,26 +238,11 @@ if [ "$changed" = 1 ]; then
     say "note: nut-driver-enumerator not present, continuing"
   run systemctl restart "nut-driver@$UPS_NAME.service" 2>/dev/null || true
   run systemctl restart nut-server.service
-  # upsmon needs upsd up before it can log in, so it goes last.
+  # upsmon needs upsd up before it can log in, so it goes last. A failure here
+  # is reported by the backstop check in step 5, which says more than
+  # systemctl's exit code would.
   run systemctl reset-failed nut-monitor.service 2>/dev/null || true
-  run systemctl restart nut-monitor.service
-fi
-
-# A re-run that changed nothing still has to deal with a unit left failed by an
-# earlier install, and the backstop only exists if upsmon actually stayed up.
-if [ "$DRY" = 0 ]; then
-  if ! systemctl is-active --quiet nut-monitor.service; then
-    say "nut-monitor is not running; clearing the failed state and starting it"
-    run systemctl reset-failed nut-monitor.service 2>/dev/null || true
-    run systemctl restart nut-monitor.service 2>/dev/null || true
-    sleep 2
-  fi
-  if systemctl is-active --quiet nut-monitor.service; then
-    say "OK: upsmon is running; it shuts down if the UPS reports low battery"
-  else
-    die "nut-monitor is not running, so there is no low-battery backstop:
-    systemctl status nut-monitor; journalctl -u nut-monitor -n 20"
-  fi
+  run systemctl restart nut-monitor.service 2>/dev/null || true
 fi
 
 # ---- 3. econut config -------------------------------------------------------
@@ -296,6 +296,33 @@ if [ "$DRY" = 0 ]; then
   else
     die "econut-guard --once failed; check: systemctl status nut-server nut-driver@$UPS_NAME; upsc $UPS_NAME@localhost"
   fi
+  # Tier 2: upsmon. Being up is not enough -- given a password upsd rejects it
+  # stays up and retries the login indefinitely, so is-active would say yes
+  # while nothing was watching. upsd's client list is the evidence: econut-guard
+  # only ever sends LIST VAR and GET VAR, never LOGIN, so upsmon is the only
+  # thing here that appears in it.
+  say "checking the low-battery backstop"
+  if ! systemctl is-active --quiet nut-monitor.service; then
+    say "nut-monitor is not running; clearing the failed state and starting it"
+    run systemctl reset-failed nut-monitor.service 2>/dev/null || true
+    run systemctl restart nut-monitor.service 2>/dev/null || true
+  fi
+  # upsmon that is going to exit can still look active for a moment, and the
+  # login takes a poll, so give it time before believing either signal.
+  sleep 5
+  if ! systemctl is-active --quiet nut-monitor.service; then
+    die "nut-monitor is not running, so there is no low-battery backstop:
+    systemctl status nut-monitor; journalctl -u nut-monitor -n 20"
+  fi
+  if [ -n "$(upsc -c "$UPS_NAME@localhost" 2>/dev/null)" ]; then
+    say "OK: upsmon is logged in to upsd and will shut down on low battery"
+  else
+    die "nut-monitor is running but never logged in to upsd, so the backstop
+    would not act. This is usually a password mismatch between the MONITOR line
+    in /etc/nut/upsmon.conf and the [monitor] user in /etc/nut/upsd.users:
+    journalctl -u nut-monitor -n 20"
+  fi
+
   # econut-guard is meant to act well before the UPS calls low battery. If the
   # level has been set at or under the UPS's own threshold, upsmon gets there
   # first and the configured level never does anything.
