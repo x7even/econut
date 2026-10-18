@@ -1,0 +1,142 @@
+# Checks that used to be run by hand on one machine, which meant they were as
+# reliable as whoever remembered. This is a tool whose job is to power a
+# machine off, so the checks that say it still works belong somewhere that
+# cannot forget.
+#
+# Nothing here needs hardware. The parts that genuinely cannot be tested
+# without the rig - a real power cut, udev rules landing on a serial node,
+# systemd restarting the daemon - are verified by hand and recorded in the PR
+# that changes them; see README. What is left is still most of the risk: the
+# policy that decides to shut down, the status contract the CLI reads, and the
+# installer that runs as root.
+#
+# Every job pins its runner image rather than using ubuntu-latest. The tools
+# this workflow does not install itself - shellcheck, and the bash, sed, awk
+# and grep that the installer and its test harness run on - come from that
+# image, so "latest" means a green branch can turn red because GitHub moved the
+# label. (It moves to Ubuntu 26 on 2026-10-19.) The Go tools are pinned by
+# version for the same reason. Moving the image is then a deliberate commit
+# that CI itself checks, which is the only honest way to find out whether
+# econut still works on it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only. Nothing in this workflow publishes anything, so nothing here
+# needs a token that could.
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go ${{ matrix.go }}
+    runs-on: ubuntu-24.04
+    strategy:
+      # Report both, so one version failing still shows whether the other does.
+      fail-fast: false
+      matrix:
+        # go.mod claims go 1.22, and this is the only thing that checks whether
+        # that is still true. "stable" catches the opposite problem: code that
+        # only compiles on the old version.
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+
+      - run: go build ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - run: go vet ./...
+
+      # -count=1 because several tests read deploy/install.sh and testdata, and
+      # a cached pass would not notice those files changing. -race because the
+      # guard polls on a ticker while writing the snapshot a second goroutine
+      # may read.
+      - run: go test -race -count=1 ./...
+
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "go mod tidy changed go.mod/go.sum; commit the result"
+            git diff -- go.mod go.sum
+            exit 1
+          fi
+
+  shell:
+    # deploy/install.sh runs as root and rewrites NUT's configuration, so it
+    # gets the same scrutiny as the Go code. Its testable functions are already
+    # exercised by go test through testdata/install_sh_functions.sh; these are
+    # the checks that read the whole file.
+    name: shell
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: bash -n
+        run: |
+          for f in deploy/install.sh testdata/install_sh_functions.sh; do
+            bash -n "$f" || exit 1
+          done
+
+      # shellcheck comes from the runner image, which is why that image is
+      # pinned; the version is printed so the log says which one passed.
+      # --severity=warning is the threshold that
+      # fails the build: warnings and errors are things that can misbehave at
+      # run time, which in a root-running installer is the whole point of this
+      # job. The info and style notes left below the line are real but not
+      # defects here - SC2015 on "check && check || die", where die is meant to
+      # run if either check fails, and SC2016 on literal $ characters inside the
+      # test harness's fake passwords. Lowering the threshold would mean either
+      # rewriting correct code or scattering disable directives until the tool
+      # stops being read. --severity filters what is reported, not just what
+      # fails, so run "shellcheck deploy/install.sh" with no flags locally to
+      # see the notes below the line.
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck --severity=warning deploy/install.sh testdata/install_sh_functions.sh
+
+  analyze:
+    # staticcheck rather than golangci-lint: golangci-lint is a meta-runner
+    # that needs a config file to behave predictably, and staticcheck is the
+    # part of it worth having here. Both tools are pinned by version, so a new
+    # release cannot turn a green branch red on its own.
+    name: staticcheck + govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # These tools track recent toolchains; the go 1.22 promise is the
+          # other job's business. They still read the language version from
+          # go.mod when analysing.
+          go-version: stable
+          check-latest: true
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          staticcheck ./...
+
+      # econut has no dependencies, so this is watching the standard library
+      # and the toolchain it was built with - which is where its vulnerabilities
+      # would come from.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
