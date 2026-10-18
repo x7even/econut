@@ -38,7 +38,11 @@ temperature over USB.
 - The EcoFlow's **USB-A** port connected to the machine you want to protect (a USB-C to USB-C
   cable did not work on the unit we tested).
 - NUT: `sudo apt install nut-server` (Debian/Ubuntu).
-- Go 1.22 or newer, to build.
+- Go 1.22 or newer, to build. If `go install` answers `go: command not found`, check whether a
+  toolchain is simply missing from your `PATH` before installing another one — an unpacked
+  tarball in `~/go-toolchain` or `/usr/local/go` is not on `PATH` unless you put it there, and
+  `sudo apt install golang-go` next to it leaves you with two. Either run the absolute path
+  (`~/go-toolchain/go/bin/go install ...`) or add it: `export PATH=$PATH:/usr/local/go/bin`.
 
 ## Install
 
@@ -50,7 +54,9 @@ sudo ~/go/bin/econut install --enable-service
 ```
 
 (`~/go/bin` is where `go install` puts the binaries; use `$(go env GOBIN)` or `$(go env GOPATH)/bin`
-if you have changed that. The full path matters because `sudo` often does not have it on `PATH`.)
+if you have changed that — with the same `go` the first command used, since that substitution needs
+it on `PATH` too. The full path to `econut` matters because `sudo` often does not have `~/go/bin` on
+`PATH`, and `sudo econut install` would then run an older copy from `/usr/local/bin`.)
 
 To pick your own shutdown level at install time, add `--shutdown-below 40`.
 
@@ -76,6 +82,10 @@ what updates the machine: it backs up the binaries it replaces, restarts a runni
 `econut-guard` so the new one is actually live, and keeps your `/etc/econut/econut.conf`, so the
 shutdown level you chose survives the update. Add `--enable-service` if the guard was never
 enabled.
+
+Updating is the one job that needs the Go toolchain again, months after you last thought about
+it. If `go` has since fallen off your `PATH`, see Requirements above — the toolchain is usually
+still installed.
 
 Then confirm the update took effect:
 
