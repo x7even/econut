@@ -80,13 +80,18 @@ enabled.
 Then confirm the update took effect:
 
 ```sh
-econut check                                        # exit 0 means protected right now
-go version -m "$(command -v econut)" | grep -w mod  # which build is installed
+econut check                                             # exit 0 means protected right now
+go version -m /usr/local/bin/econut-guard | grep -w mod  # the build the service runs
+systemctl show econut-guard -p ExecMainStartTimestamp    # it should post-date the update
 ```
 
 A release build names the module and its tag, as in `mod github.com/x7even/econut v0.3.0`. A
 pseudo-version ending in `+dirty`, or a bare `mod econut`, is an uninstalled local build from
-before the rename, which means the copy into `/usr/local/bin` never ran.
+before the rename, which means the copy into `/usr/local/bin` never ran. Swap the path for
+`"$(command -v econut)"` to ask the same of the CLI.
+
+On-disk and running are separate questions, which is why the timestamp is there: it is the
+daemon that protects the machine, and it only picks up a new binary when it restarts.
 
 ## Check it works
 
@@ -210,7 +215,9 @@ it again.
 - An old version still running after `go install`: `go install` writes to `~/go/bin` and
   nothing else. The service runs `/usr/local/bin/econut-guard`, which the install step copies
   into place before restarting it, so `sudo ~/go/bin/econut install` is what makes a new build
-  live. `go version -m "$(command -v econut)" | grep -w mod` says which one you are running.
+  live. `go version -m /usr/local/bin/econut-guard | grep -w mod` says which build is on disk,
+  and `systemctl show econut-guard -p ExecMainStartTimestamp` whether the daemon has restarted
+  onto it.
 - `nut-monitor` is `failed`, or `upsc -c <ups>` lists no client: tier 2 is down, so a low
   battery reported by the UPS itself would not shut the machine down. Re-run the installer
   (`sudo ~/go/bin/econut install`): it writes `upsmon.conf` with the password from `upsd.users`
