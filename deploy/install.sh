@@ -210,6 +210,7 @@ if [ -f /etc/nut/upsd.users ] && grep -q '^\[monitor\]' /etc/nut/upsd.users 2>/d
 else
   mktempf tmp
   pw=$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')
+  # shellcheck disable=SC2154 # mktempf assigns $tmp with printf -v, which shellcheck cannot follow
   sed "s/CHANGE-ME-before-installing/$pw/" "$HERE/upsd.users" >"$tmp"
   install_file "$tmp" /etc/nut/upsd.users 0640 root:nut && changed=1
 fi
@@ -222,6 +223,7 @@ fi
 say "upsmon backstop (/etc/nut/upsmon.conf)"
 if monpw=$(monitor_password /etc/nut/upsd.users); then
   mktempf tmpmon
+  # shellcheck disable=SC2154 # mktempf assigns $tmpmon with printf -v, which shellcheck cannot follow
   fill_placeholder "$HERE/upsmon.conf" "$monpw" >"$tmpmon"
   install_file "$tmpmon" /etc/nut/upsmon.conf 0640 root:nut && changed=1
 elif [ "$DRY" = 1 ]; then
@@ -250,6 +252,7 @@ say "econut config ($CONF)"
 run install -d -m 0755 /etc/econut
 if [ ! -f "$CONF" ]; then
   mktempf tmp2
+  # shellcheck disable=SC2154 # mktempf assigns $tmp2 with printf -v, which shellcheck cannot follow
   sed "s/^ECONUT_SHUTDOWN_BELOW=.*/ECONUT_SHUTDOWN_BELOW=${TRIGGER:-55}/" "$HERE/econut.conf" >"$tmp2"
   install_file "$tmp2" "$CONF" 0644
 else

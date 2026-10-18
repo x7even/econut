@@ -84,9 +84,19 @@ jobs:
             bash -n "$f" || exit 1
           done
 
-      # Preinstalled on ubuntu-latest.
+      # Preinstalled on ubuntu-latest. --severity=warning is the threshold that
+      # fails the build: warnings and errors are things that can misbehave at
+      # run time, which in a root-running installer is the whole point of this
+      # job. The info and style notes left below the line are real but not
+      # defects here - SC2015 on "check && check || die", where die is meant to
+      # run if either check fails, and SC2016 on literal $ characters inside the
+      # test harness's fake passwords. Lowering the threshold would mean either
+      # rewriting correct code or scattering disable directives until the tool
+      # stops being read. --severity filters what is reported, not just what
+      # fails, so run "shellcheck deploy/install.sh" with no flags locally to
+      # see the notes below the line.
       - name: shellcheck
-        run: shellcheck deploy/install.sh testdata/install_sh_functions.sh
+        run: shellcheck --severity=warning deploy/install.sh testdata/install_sh_functions.sh
 
   analyze:
     # staticcheck rather than golangci-lint: golangci-lint is a meta-runner
