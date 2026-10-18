@@ -7,8 +7,17 @@
 # without the rig - a real power cut, udev rules landing on a serial node,
 # systemd restarting the daemon - are verified by hand and recorded in the PR
 # that changes them; see README. What is left is still most of the risk: the
-# policy that decides to shut down, the status contract the CLI reads, and 349
-# lines of bash that run as root.
+# policy that decides to shut down, the status contract the CLI reads, and the
+# installer that runs as root.
+#
+# Every job pins its runner image rather than using ubuntu-latest. The tools
+# this workflow does not install itself - shellcheck, and the bash, sed, awk
+# and grep that the installer and its test harness run on - come from that
+# image, so "latest" means a green branch can turn red because GitHub moved the
+# label. (It moves to Ubuntu 26 on 2026-10-19.) The Go tools are pinned by
+# version for the same reason. Moving the image is then a deliberate commit
+# that CI itself checks, which is the only honest way to find out whether
+# econut still works on it.
 name: CI
 
 on:
@@ -24,7 +33,7 @@ permissions:
 jobs:
   go:
     name: go ${{ matrix.go }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       # Report both, so one version failing still shows whether the other does.
       fail-fast: false
@@ -74,7 +83,7 @@ jobs:
     # exercised by go test through testdata/install_sh_functions.sh; these are
     # the checks that read the whole file.
     name: shell
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -84,7 +93,9 @@ jobs:
             bash -n "$f" || exit 1
           done
 
-      # Preinstalled on ubuntu-latest. --severity=warning is the threshold that
+      # shellcheck comes from the runner image, which is why that image is
+      # pinned; the version is printed so the log says which one passed.
+      # --severity=warning is the threshold that
       # fails the build: warnings and errors are things that can misbehave at
       # run time, which in a root-running installer is the whole point of this
       # job. The info and style notes left below the line are real but not
@@ -96,7 +107,9 @@ jobs:
       # fails, so run "shellcheck deploy/install.sh" with no flags locally to
       # see the notes below the line.
       - name: shellcheck
-        run: shellcheck --severity=warning deploy/install.sh testdata/install_sh_functions.sh
+        run: |
+          shellcheck --version
+          shellcheck --severity=warning deploy/install.sh testdata/install_sh_functions.sh
 
   analyze:
     # staticcheck rather than golangci-lint: golangci-lint is a meta-runner
@@ -104,7 +117,7 @@ jobs:
     # part of it worth having here. Both tools are pinned by version, so a new
     # release cannot turn a green branch red on its own.
     name: staticcheck + govulncheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
