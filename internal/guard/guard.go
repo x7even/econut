@@ -29,9 +29,10 @@ type Guard struct {
 	Now  func() time.Time
 
 	// Optional, for the econut status command.
-	Mode   string                // status.ModeDryRun or status.ModeLive
-	Target string                // NUT target as given by the user
-	Report func(status.Snapshot) // called after every completed poll
+	Mode    string                // status.ModeDryRun or status.ModeLive
+	Target  string                // NUT target as given by the user
+	Version string                // build of econut-guard, published in the snapshot
+	Report  func(status.Snapshot) // called after every completed poll
 
 	st             policy.State
 	blindReads     int       // consecutive failed reads in the current run
@@ -242,6 +243,7 @@ func (g *Guard) report(now time.Time, r nut.Reading, readErr error, res policy.R
 		Updated:       now,
 		Mode:          g.Mode,
 		UPS:           g.Target,
+		Version:       g.Version,
 		PollSeconds:   g.Poll.Seconds(),
 		ShutdownBelow: g.Cfg.ShutdownBelow,
 		DebounceSecs:  g.Cfg.Debounce.Seconds(),

@@ -35,8 +35,11 @@ are needed: `go install` refreshes `~/go/bin` only, while the copy into `/usr/lo
 restart of the running guard happen in step 4 above. From a checkout, rebuild into `bin/` and
 re-run `sudo deploy/install.sh`.
 
-`go version -m "$(command -v econut)" | grep -w mod` reports which build is installed, which is
-worth checking after an update: a `+dirty` pseudo-version is a local build, not a release.
+`econut version` reports which build the command is and which build the running guard is -
+two separate questions after an update, since the daemon keeps running whatever it was started
+with until the installer restarts it. For a guard older than v0.3.2, which does not publish its
+version, `go version -m "$(command -v econut)" | grep -w mod` reports the installed build
+instead: a `+dirty` pseudo-version is a local build, not a release.
 
 ## Changing the level later
 
@@ -101,11 +104,11 @@ The faults behind exit 3 are:
 
 ### Reading the status file directly
 
-The guard writes `/run/econut/status.json` at mode 0644 every poll. It holds **measurements, not a verdict**: `valid`, `ups_status`, `charge`, `on_battery`, `held_seconds`, `triggered`, `blind_seconds`, `ever_valid`, `stale_after_seconds`, `shutdown_failed`, `mode`, `poll_seconds`, `shutdown_below`, `debounce_seconds` and `updated`.
+The guard writes `/run/econut/status.json` at mode 0644 every poll. It holds **measurements, not a verdict**: `valid`, `ups_status`, `charge`, `on_battery`, `held_seconds`, `triggered`, `blind_seconds`, `ever_valid`, `stale_after_seconds`, `shutdown_failed`, `mode`, `poll_seconds`, `shutdown_below`, `debounce_seconds`, `version` and `updated`.
 
 Whether the machine is protected depends on when you ask - a snapshot that was protected when written is "not running" fifteen seconds later - so the verdict is computed by the reader and deliberately not stored. `econut status --json` adds the `protection` and `exit_code` it computed at that moment; a `protection` field in the file itself would be a fact with an expiry date in a file that outlives the guard.
 
-If you consume the file rather than the command, **test `valid` first**: `charge` and `on_battery` are the zero values of a reading that failed, so `{"valid":false,"charge":0,"on_battery":false}` means "no reading", not "on mains at 0%". Likewise a non-empty `shutdown_failed` means the machine could not be powered off, and `blind_seconds` is only meaningful when `stale_after_seconds` is present - a snapshot from a guard that predates these keys has both at zero because it recorded neither, not because it had just read the UPS.
+If you consume the file rather than the command, **test `valid` first**: `charge` and `on_battery` are the zero values of a reading that failed, so `{"valid":false,"charge":0,"on_battery":false}` means "no reading", not "on mains at 0%". Likewise a non-empty `shutdown_failed` means the machine could not be powered off, and `blind_seconds` is only meaningful when `stale_after_seconds` is present - a snapshot from a guard that predates these keys has both at zero because it recorded neither, not because it had just read the UPS. `version` is the build of `econut-guard` that wrote the snapshot, and is omitted altogether by guards older than v0.3.2: absent means "did not say", not "unknown build".
 
 ### Gating a long job
 

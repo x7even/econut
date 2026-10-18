@@ -1,5 +1,6 @@
 // Command econut-guard shuts the machine down when the UPS is on battery and
-// the charge is low. Pass --dry-run to log instead of shutting down.
+// the charge is low. Pass --dry-run to log instead of shutting down, and
+// --version to print which build this is.
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"github.com/x7even/econut/internal/nut"
 	"github.com/x7even/econut/internal/policy"
 	"github.com/x7even/econut/internal/status"
+	"github.com/x7even/econut/internal/version"
 )
 
 // envFloat returns the float in environment variable key, or def if it is
@@ -91,6 +93,17 @@ func validate(trigger float64, debounce, poll, stale time.Duration) error {
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
+	// Answered before anything that can fail. A bad value in
+	// /etc/econut/econut.conf exits 2 a few lines below, and the machine that
+	// will not start is precisely the one whose build you need to identify, so
+	// this cannot wait for flag.Parse.
+	for _, a := range os.Args[1:] {
+		if a == "--version" || a == "-version" {
+			fmt.Printf("econut-guard %s\n", version.String())
+			return
+		}
+	}
+
 	// ECONUT_SHUTDOWN_BELOW and ECONUT_DEBOUNCE (from /etc/econut/econut.conf under
 	// systemd) set the defaults; flags override them.
 	defTrigger, err := envFloat(os.Getenv, "ECONUT_SHUTDOWN_BELOW", 55)
@@ -114,8 +127,17 @@ func main() {
 		dryRun     = flag.Bool("dry-run", false, "only log what would happen; never power the machine off (for testing)")
 		once       = flag.Bool("once", false, "read the UPS once, print the reading and exit (diagnostic)")
 		statusFile = flag.String("status-file", status.DefaultPath, "write a status snapshot here for the econut command (empty disables)")
+		showVer    = flag.Bool("version", false, "print the econut-guard build and exit")
 	)
 	flag.Parse()
+
+	// The scan above catches --version and -version; this catches the
+	// spellings it does not, such as -version=true, and puts the flag in
+	// --help where it can be found.
+	if *showVer {
+		fmt.Printf("econut-guard %s\n", version.String())
+		return
+	}
 
 	if err := validate(*trigger, *debounce, *poll, *stale); err != nil {
 		log.Error("bad flags", "err", err)
@@ -147,19 +169,20 @@ func main() {
 		act = actuator.LogOnly{Log: log}
 		mode, modeText = status.ModeDryRun, "DRY-RUN (no shutdown will occur)"
 	}
-	log.Info("starting econut-guard", "mode", modeText, "ups", *target,
+	log.Info("starting econut-guard", "version", version.String(), "mode", modeText, "ups", *target,
 		"shutdown_below", *trigger, "debounce", *debounce, "poll", *poll)
 
 	g := &guard.Guard{
-		Cfg:    policy.Config{ShutdownBelow: *trigger, Debounce: *debounce, StaleAfter: *stale},
-		Src:    client,
-		Act:    act,
-		Log:    log,
-		Poll:   *poll,
-		Now:    time.Now,
-		Mode:   mode,
-		Target: *target,
-		Report: snapshotWriter(*statusFile, log),
+		Cfg:     policy.Config{ShutdownBelow: *trigger, Debounce: *debounce, StaleAfter: *stale},
+		Src:     client,
+		Act:     act,
+		Log:     log,
+		Poll:    *poll,
+		Now:     time.Now,
+		Mode:    mode,
+		Target:  *target,
+		Version: version.String(),
+		Report:  snapshotWriter(*statusFile, log),
 	}
 	g.Run(ctx)
 	log.Info("stopped")
