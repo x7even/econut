@@ -61,6 +61,33 @@ is safe to re-run: files that already match are left alone and changed ones are 
 
 Prefer a checkout? `git clone https://github.com/x7even/econut.git && cd econut && go build -o bin/ ./cmd/... && sudo deploy/install.sh --enable-service` does the same thing.
 
+## Update
+
+The same two commands, in the same order:
+
+```sh
+go install github.com/x7even/econut/cmd/...@latest
+sudo ~/go/bin/econut install
+```
+
+Both are needed. `go install` only refreshes `~/go/bin`; it does not touch `/usr/local/bin`,
+which is where the service runs from, and it does not restart anything. The second command is
+what updates the machine: it backs up the binaries it replaces, restarts a running
+`econut-guard` so the new one is actually live, and keeps your `/etc/econut/econut.conf`, so the
+shutdown level you chose survives the update. Add `--enable-service` if the guard was never
+enabled.
+
+Then confirm the update took effect:
+
+```sh
+econut check                                        # exit 0 means protected right now
+go version -m "$(command -v econut)" | grep -w mod  # which build is installed
+```
+
+A release build names the module and its tag, as in `mod github.com/x7even/econut v0.3.0`. A
+pseudo-version ending in `+dirty`, or a bare `mod econut`, is an uninstalled local build from
+before the rename, which means the copy into `/usr/local/bin` never ran.
+
 ## Check it works
 
 ```sh
@@ -76,6 +103,24 @@ UPS values changed  ups.status="OL -> OB DISCHRG"
 UPS values changed  ups.status="OB DISCHRG -> OL DISCHRG"
 UPS values changed  ups.status="OL DISCHRG -> OL CHRG"
 ```
+
+Both tiers of protection should check out too. Tier 1 is `econut-guard`, shutting down at the
+level you chose; tier 2 is NUT's own `upsmon`, shutting down if the UPS itself reports low
+battery (see [deploy/README.md](deploy/README.md#the-low-battery-backstop)):
+
+```sh
+econut check                     # tier 1: protected right now? exit 0 if so
+systemctl is-active nut-monitor  # tier 2: expect active, not failed
+upsc -c ecoflow@localhost        # tier 2: must list a client
+udevadm info -n /dev/ttyACM0 | grep ID_MM   # expect ID_MM_DEVICE_IGNORE=1
+```
+
+`upsc -c` is the one that matters: it lists who is logged in to `upsd`, and `upsmon` appearing
+there is the only proof its login succeeded. Given a password `upsd` rejects, `upsmon` stays
+running and retries for ever, so `systemctl` showing it active does not mean it is watching the
+battery. Expect one address, usually `127.0.0.1`; `upsc` also prints `Init SSL without
+certificate database` on stderr, which is normal and is not a client. No address listed means
+there is no tier 2 - re-run the installer.
 
 ## When it cannot see the UPS
 
@@ -159,6 +204,17 @@ it again.
 
 ## Troubleshooting
 
+- `sudo: .../econut: command not found`: `go install` has not run, so `~/go/bin/econut` does
+  not exist yet - installing is two commands and that is the first one. If you have changed
+  `GOBIN`, use `$(go env GOBIN)/econut`, or `$(go env GOPATH)/bin/econut`, instead.
+- An old version still running after `go install`: `go install` writes to `~/go/bin` and
+  nothing else. The service runs `/usr/local/bin/econut-guard`, which the install step copies
+  into place before restarting it, so `sudo ~/go/bin/econut install` is what makes a new build
+  live. `go version -m "$(command -v econut)" | grep -w mod` says which one you are running.
+- `nut-monitor` is `failed`, or `upsc -c <ups>` lists no client: tier 2 is down, so a low
+  battery reported by the UPS itself would not shut the machine down. Re-run the installer
+  (`sudo ~/go/bin/econut install`): it writes `upsmon.conf` with the password from `upsd.users`
+  and then verifies the login. Tier 1 is unaffected, and `econut check` still speaks for it.
 - `econut status` says NOT RUNNING: `systemctl status econut-guard` and
   `journalctl -u econut-guard -n 50`.
 - `econut status` says NOT PROTECTED: the headline names which fault it is. Most often the
