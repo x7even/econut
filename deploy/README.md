@@ -27,6 +27,17 @@ Options: `--shutdown-below N` sets the level; `--enable-service` also enables an
 
 Requires the NUT package (`sudo apt install nut-server` on Debian/Ubuntu).
 
+## Updating an existing install
+
+Re-run the installer. With the no-clone install that is `go install
+github.com/x7even/econut/cmd/...@latest` followed by `sudo ~/go/bin/econut install`, and both
+are needed: `go install` refreshes `~/go/bin` only, while the copy into `/usr/local/bin` and the
+restart of the running guard happen in step 4 above. From a checkout, rebuild into `bin/` and
+re-run `sudo deploy/install.sh`.
+
+`go version -m "$(command -v econut)" | grep -w mod` reports which build is installed, which is
+worth checking after an update: a `+dirty` pseudo-version is a local build, not a release.
+
 ## Changing the level later
 
 ```sh

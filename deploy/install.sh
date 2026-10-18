@@ -280,9 +280,9 @@ if [ "$ENABLE" = 1 ]; then
   run systemctl enable econut-guard.service
   run systemctl restart econut-guard.service # enable --now would leave an already-running old process
   say "econut-guard enabled; confirm it can see the UPS with: econut check"
-elif [ "$DRY" = 0 ] && systemctl is-active --quiet econut-guard.service; then
+elif systemctl is-active --quiet econut-guard.service; then
   run systemctl restart econut-guard.service # pick up a new binary or level
-  say "restarted the running econut-guard"
+  [ "$DRY" = 1 ] || say "restarted the running econut-guard"
 else
   say "econut-guard installed but not enabled (use --enable-service to arm it)"
 fi
