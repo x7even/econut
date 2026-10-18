@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,12 +41,44 @@ func TestVersionCallsOutAMismatch(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	p := writeVerSnap(t, now, "v0.3.0")
 
+	// The hint must name an absolute path. os.Args[0] is often the bare word
+	// "econut" from the user's PATH, and sudo's secure_path drops ~/go/bin, so
+	// "sudo econut install" would run the older /usr/local/bin/econut and
+	// reinstall the very build the mismatch is about.
+	const abs = "/opt/somewhere/econut"
+	defer func(orig func() (string, error)) { executablePath = orig }(executablePath)
+	executablePath = func() (string, error) { return abs, nil }
+
 	code, out, _ := runCmd(t, now.Add(time.Second), "version", "--file", p)
 	if code != 0 {
 		t.Fatalf("a mismatch is reported, not judged: code=%d", code)
 	}
-	if !strings.Contains(out, "different build") || !strings.Contains(out, "install") {
+	if !strings.Contains(out, "different build") {
 		t.Errorf("no mismatch notice in %q", out)
+	}
+	if !strings.Contains(out, "sudo "+abs+" install") {
+		t.Errorf("hint does not name this binary by absolute path: %q", out)
+	}
+}
+
+// With no way to identify this binary, the hint must fall back to the
+// documented pair rather than to a command that might install another build.
+func TestVersionMismatchHintFallsBack(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	p := writeVerSnap(t, now, "v0.3.0")
+
+	defer func(orig func() (string, error)) { executablePath = orig }(executablePath)
+	executablePath = func() (string, error) { return "", errors.New("no") }
+
+	code, out, _ := runCmd(t, now.Add(time.Second), "version", "--file", p)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if !strings.Contains(out, "go install github.com/x7even/econut/cmd/...@latest") {
+		t.Errorf("no documented fallback in %q", out)
+	}
+	if strings.Contains(out, "sudo  install") {
+		t.Errorf("hint names an empty path: %q", out)
 	}
 }
 

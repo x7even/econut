@@ -50,10 +50,27 @@ func runVersion(args []string, out, errOut io.Writer, now time.Time) int {
 		// Plain string comparison: these are opaque build identities, and
 		// ordering two pseudo-versions is not something this needs to get
 		// right to say "these are not the same build".
-		fmt.Fprintf(out, "\nThe running daemon is a different build from this command.\n"+
-			"Put this one into service with:  sudo %s install\n", os.Args[0])
+		fmt.Fprintf(out, "\nThe running daemon is a different build from this command.\n%s", installHint())
 	}
 	return 0
+}
+
+// installHint names the command that puts this build into service. It has to
+// be an absolute path, which is why it is not os.Args[0]: that is often the
+// bare word "econut" found on the user's PATH, and sudo's secure_path drops
+// ~/go/bin, so "sudo econut install" would run /usr/local/bin/econut - the old
+// build - and reinstall the very version the mismatch is about. It resolves
+// through the same executablePath the installer itself uses, so the path named
+// here is the build that would be installed.
+func installHint() string {
+	exe, err := executablePath()
+	if err != nil || exe == "" {
+		// Cannot name this binary, so fall back to the documented pair rather
+		// than to a command that might install something else.
+		return "Update with:  go install github.com/x7even/econut/cmd/...@latest\n" +
+			"then put it into service with:  sudo ~/go/bin/econut install\n"
+	}
+	return fmt.Sprintf("Put this one into service with:  sudo %s install\n", exe)
 }
 
 // guardBuild returns the running guard's version, or an empty string and a
