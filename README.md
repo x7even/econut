@@ -80,7 +80,27 @@ enabled.
 Then confirm the update took effect:
 
 ```sh
-econut check                                             # exit 0 means protected right now
+econut version    # which build this command is, and which build is running
+econut check      # exit 0 means protected right now
+```
+
+`econut version` answers the update question directly, because it reports two builds rather
+than one:
+
+```
+econut        v0.3.2
+econut-guard  v0.3.2 (running)
+```
+
+If the two differ, the daemon protecting the machine is not the build you just installed, and
+it says so and names the command that fixes it. `econut-guard  running, but does not report
+its version` means the running guard predates v0.3.2, which is itself the answer: it is an
+older build than this one. A guard that has stopped is reported as not running rather than by
+the version in its last snapshot.
+
+For a build from **before v0.3.2**, which cannot report itself, ask the toolchain instead:
+
+```sh
 go version -m /usr/local/bin/econut-guard | grep -w mod  # the build the service runs
 systemctl show econut-guard -p ExecMainStartTimestamp    # it should post-date the update
 ```
@@ -215,9 +235,10 @@ it again.
 - An old version still running after `go install`: `go install` writes to `~/go/bin` and
   nothing else. The service runs `/usr/local/bin/econut-guard`, which the install step copies
   into place before restarting it, so `sudo ~/go/bin/econut install` is what makes a new build
-  live. `go version -m /usr/local/bin/econut-guard | grep -w mod` says which build is on disk,
-  and `systemctl show econut-guard -p ExecMainStartTimestamp` whether the daemon has restarted
-  onto it.
+  live. `econut version` shows both builds at once and is the quickest way to see the gap; for
+  a guard older than v0.3.2, `go version -m /usr/local/bin/econut-guard | grep -w mod` says
+  which build is on disk, and `systemctl show econut-guard -p ExecMainStartTimestamp` whether
+  the daemon has restarted onto it.
 - `nut-monitor` is `failed`, or `upsc -c <ups>` lists no client: tier 2 is down, so a low
   battery reported by the UPS itself would not shut the machine down. Re-run the installer
   (`sudo ~/go/bin/econut install`): it writes `upsmon.conf` with the password from `upsd.users`

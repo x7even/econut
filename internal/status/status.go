@@ -41,6 +41,13 @@ type Snapshot struct {
 	// has. A machine whose poweroff does not work is not protected however
 	// healthy its telemetry looks, so this is part of the verdict below.
 	ShutdownFailed string `json:"shutdown_failed,omitempty"`
+
+	// Version is the build of econut-guard that wrote this snapshot, so a
+	// reader can tell which daemon is actually running rather than which
+	// binary is on disk. Last, and omitempty, so adding it left every existing
+	// key's name and position alone; a guard built before it existed omits it,
+	// and absent means "did not say", never "unknown build".
+	Version string `json:"version,omitempty"`
 }
 
 // StatusKnown reports whether a ups.status string says which power source the

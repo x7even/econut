@@ -5,6 +5,12 @@
 //	econut check [--max-age DURATION] [--allow-dry-run] [--quiet] [--file PATH]
 //	sudo econut set [--shutdown-below PERCENT] [--debounce DURATION]
 //	sudo econut install [--shutdown-below PERCENT] [--enable-service] [--dry-run] [--uninstall]
+//	econut version [--file PATH]
+//
+// "econut version" prints this command's build and, separately, the build of
+// the econut-guard that is running, because "go install" refreshes the former
+// while the latter keeps running whatever it was started with. It exits 0
+// whenever it can answer, mismatch included.
 //
 // Exit status: 0 protected, 1 guard not running (or its snapshot unreadable,
 // stale or dated in the future), 2 usage error, 3 running but unprotected
@@ -58,6 +64,12 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	if len(args) > 0 && args[0] == "check" {
 		return runCheck(args[1:], out, errOut, now)
 	}
+	// --version is dispatched here with the subcommand: left to the status
+	// FlagSet below it would be an undefined flag and exit 2, which is a poor
+	// answer to a question every command is expected to take.
+	if len(args) > 0 && (args[0] == "version" || args[0] == "--version" || args[0] == "-version") {
+		return runVersion(args[1:], out, errOut, now)
+	}
 	if len(args) > 0 && args[0] == "status" {
 		args = args[1:]
 	}
@@ -69,7 +81,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status|check|set|install] ...)\n", fs.Arg(0))
+		fmt.Fprintf(errOut, "econut: unknown command %q (usage: econut [status|check|set|install|version] ...)\n", fs.Arg(0))
 		return 2
 	}
 
